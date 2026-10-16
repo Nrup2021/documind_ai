@@ -6,16 +6,18 @@ from fastapi.testclient import TestClient
 
 from app.answers import (
     AnswerGenerationError,
-    GeminiAnswerProvider,
+    DOCUMENT_ANSWER_SYSTEM_PROMPT,
     INSUFFICIENT_EVIDENCE_ANSWER,
+    OllamaAnswerProvider,
 )
 from app.config import Settings
 from app.documents import RetrievedChunk
 from app.main import create_app
 from app.models import QuestionResponse
+from app.ollama_client import OllamaError
 
 
-class MockGeminiClient:
+class MockOllamaClient:
     def __init__(
         self,
         response_text: Optional[str] = None,
@@ -25,26 +27,22 @@ class MockGeminiClient:
         self.error = error
         self.call_arguments = None
 
-    def generate_content(self, **arguments):
+    def chat(self, **arguments):
         self.call_arguments = arguments
         if self.error is not None:
             raise self.error
-        return type("GeminiResponse", (), {"text": self.response_text})()
+        return self.response_text or ""
 
 
-def make_provider(client, *, api_key="test-key", timeout_seconds=2):
-    return GeminiAnswerProvider(
-        Settings(
-            gemini_api_key=api_key,
-            gemini_model="test-model",
-            gemini_timeout_seconds=timeout_seconds,
-        ),
-        client_factory=lambda _api_key, _timeout: client,
+def make_provider(client, *, model="test-model"):
+    return OllamaAnswerProvider(
+        Settings(ollama_chat_model=model),
+        client=client,
     )
 
 
-def test_answer_uses_retrieved_passages_and_builds_citation_from_evidence() -> None:
-    client = MockGeminiClient(
+def test_answer_uses_local_model_and_builds_citations_from_evidence() -> None:
+    client = MockOllamaClient(
         json.dumps(
             {
                 "sufficient_evidence": True,
@@ -76,14 +74,15 @@ def test_answer_uses_retrieved_passages_and_builds_citation_from_evidence() -> N
         ],
     )
     assert client.call_arguments["model"] == "test-model"
-    assert client.call_arguments["config"]["response_mime_type"] == "application/json"
-    assert "How did revenue change?" in client.call_arguments["contents"]
-    assert passages[0].text in client.call_arguments["contents"]
-    assert "untrusted quoted data" in client.call_arguments["contents"]
+    assert client.call_arguments["response_schema"]["type"] == "object"
+    assert client.call_arguments["system_prompt"] == DOCUMENT_ANSWER_SYSTEM_PROMPT
+    assert "How did revenue change?" in client.call_arguments["user_prompt"]
+    assert passages[0].text in client.call_arguments["user_prompt"]
+    assert "untrusted quoted data" in client.call_arguments["system_prompt"]
 
 
-def test_model_can_explicitly_abstain() -> None:
-    client = MockGeminiClient(
+def test_local_model_can_explicitly_abstain() -> None:
+    client = MockOllamaClient(
         json.dumps(
             {
                 "sufficient_evidence": False,
@@ -102,36 +101,15 @@ def test_model_can_explicitly_abstain() -> None:
     assert result.citations == []
 
 
-def test_empty_retrieval_abstains_without_calling_gemini_or_requiring_key() -> None:
-    def fail_if_called(_api_key, _timeout):
-        raise AssertionError("Gemini must not be called without evidence")
+def test_empty_retrieval_abstains_without_calling_local_model() -> None:
+    client = MockOllamaClient()
 
-    provider = GeminiAnswerProvider(
-        Settings(gemini_api_key=""),
-        client_factory=fail_if_called,
-    )
-
-    result = provider.answer("What does the document say?", [])
+    result = make_provider(client).answer("What does the document say?", [])
 
     assert result.outcome == "insufficient_evidence"
     assert result.answer == INSUFFICIENT_EVIDENCE_ANSWER
     assert result.citations == []
-
-
-def test_gemini_requires_server_side_api_key_when_evidence_exists() -> None:
-    def fail_if_called(_api_key, _timeout):
-        raise AssertionError("Gemini must not be called without an API key")
-
-    provider = GeminiAnswerProvider(
-        Settings(gemini_api_key=""),
-        client_factory=fail_if_called,
-    )
-
-    with pytest.raises(AnswerGenerationError) as error:
-        provider.answer("Question?", [RetrievedChunk(page_number=1, text="Evidence.")])
-
-    assert error.value.code == "gemini_not_configured"
-    assert error.value.status_code == 503
+    assert client.call_arguments is None
 
 
 @pytest.mark.parametrize(
@@ -161,36 +139,40 @@ def test_gemini_requires_server_side_api_key_when_evidence_exists() -> None:
         ),
     ],
 )
-def test_invalid_model_answers_are_rejected(response_text: str) -> None:
-    provider = make_provider(MockGeminiClient(response_text))
+def test_invalid_local_model_answers_are_rejected(response_text: str) -> None:
+    provider = make_provider(MockOllamaClient(response_text))
     passage = RetrievedChunk(page_number=2, text="Actual document evidence.")
 
     with pytest.raises(AnswerGenerationError) as error:
         provider.answer("Question?", [passage])
 
-    assert error.value.code == "gemini_invalid_response"
+    assert error.value.code == "ollama_invalid_response"
     assert error.value.status_code == 502
 
 
-def test_gemini_timeout_is_reported_as_gateway_timeout() -> None:
-    provider = make_provider(MockGeminiClient(error=TimeoutError()))
-
-    with pytest.raises(AnswerGenerationError) as error:
-        provider.answer("Question?", [RetrievedChunk(page_number=1, text="Evidence.")])
-
-    assert error.value.code == "gemini_timeout"
-    assert error.value.status_code == 504
-
-
-def test_gemini_provider_errors_are_reported_without_exposing_details() -> None:
+def test_ollama_timeout_is_reported_as_gateway_timeout() -> None:
     provider = make_provider(
-        MockGeminiClient(error=RuntimeError("private provider detail"))
+        MockOllamaClient(
+            error=OllamaError("ollama_timeout", "Local model timed out.", 504)
+        )
     )
 
     with pytest.raises(AnswerGenerationError) as error:
         provider.answer("Question?", [RetrievedChunk(page_number=1, text="Evidence.")])
 
-    assert error.value.code == "gemini_provider_error"
+    assert error.value.code == "ollama_timeout"
+    assert error.value.status_code == 504
+
+
+def test_local_model_provider_errors_do_not_expose_details() -> None:
+    provider = make_provider(
+        MockOllamaClient(error=RuntimeError("private provider detail"))
+    )
+
+    with pytest.raises(AnswerGenerationError) as error:
+        provider.answer("Question?", [RetrievedChunk(page_number=1, text="Evidence.")])
+
+    assert error.value.code == "ollama_provider_error"
     assert error.value.status_code == 502
     assert "private provider detail" not in str(error.value)
 
@@ -247,7 +229,7 @@ def test_question_endpoint_retrieves_before_generating_answer() -> None:
     assert calls[1][2] == [passage]
 
 
-def test_question_endpoint_exposes_safe_gemini_error() -> None:
+def test_question_endpoint_exposes_safe_local_model_error() -> None:
     class FakePipeline:
         def retrieve(self, *, document_id, question, limit):
             return [RetrievedChunk(page_number=1, text="Evidence.")]
@@ -255,7 +237,7 @@ def test_question_endpoint_exposes_safe_gemini_error() -> None:
     class FailingAnswerProvider:
         def answer(self, question, passages):
             raise AnswerGenerationError(
-                "gemini_timeout", "Answer generation timed out.", 504
+                "ollama_timeout", "Local answer model timed out.", 504
             )
 
     client = TestClient(
@@ -274,7 +256,7 @@ def test_question_endpoint_exposes_safe_gemini_error() -> None:
     assert response.status_code == 504
     assert response.json() == {
         "error": {
-            "code": "gemini_timeout",
-            "message": "Answer generation timed out.",
+            "code": "ollama_timeout",
+            "message": "Local answer model timed out.",
         }
     }

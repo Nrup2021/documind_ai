@@ -2,12 +2,15 @@
 
 ## Status boundary
 
-The Flutter foundation is in place with Riverpod, GoRouter, and
-document-library/chat presentation routes. The backend implements a
-synchronous PDF-to-Chroma pipeline and a question route that retrieves
-page-aware passages before generating grounded answers with Gemini.
-Authentication, ownership metadata, and the remaining production lifecycle
-behavior below are still proposed.
+The Flutter Android and web clients integrate the backend's synchronous PDF
+upload and document-scoped question routes with Riverpod repositories. The
+document library's metadata is stored locally on the device. The backend
+implements a synchronous PDF-to-Chroma pipeline and a question route that
+retrieves page-aware passages before generating grounded answers with a local
+Ollama model.
+Authentication, ownership metadata, server-side document listing/status,
+deletion, and the remaining production lifecycle behavior below are still
+proposed.
 
 ## System shape
 
@@ -22,13 +25,9 @@ FastAPI modular monolith
        │                    ├── PyMuPDF → page-aware chunks
        │                    ├── local embedding adapter
        │                    ├── Chroma persistent vector collection
-       │                    └── Gemini answer generation
+       │                    └── Ollama local answer generation
        ├── SQLite (users, document metadata, status)
        └── private PDF storage
-
-Optional, separate admin/development integration:
-FastAPI MCP client ── stdio ── official filesystem MCP server
-                                 └── dedicated read-only fixture directory
 ```
 
 Keep the backend a modular monolith. Define small ports at the model,
@@ -41,10 +40,29 @@ See `implementation-plan.md` for milestone ordering. Feature UI depends on
 feature domain contracts; network and persistence implementations sit behind
 domain-facing repositories. Widgets do not call HTTP or model APIs directly.
 
+The client uses `DOCUMIND_API_BASE_URL` to configure the API URL. By default,
+web builds use `http://127.0.0.1:8000`, while Android builds use
+`http://10.0.2.2:8000` to reach a development API on the host. The backend
+allows local browser origins in development; deployed web origins must be
+listed with `DOCUMIND_CORS_ALLOWED_ORIGINS`. Android's debug manifest permits
+cleartext HTTP for local development; release builds should use an HTTPS URL.
+No credentials or model keys are embedded in the app.
+
+Only implemented backend routes are called: `POST /v1/documents` with the
+multipart field `file`, and `POST /v1/documents/{document_id}/questions` with
+`{"question": "..."}`. Upload returns `document_id`, `page_count`, and
+`chunk_count`; questions return `outcome`, `answer`, and `citations` containing
+`page_number` and `excerpt`. Upload progress is client-side transfer progress;
+the backend processes the upload synchronously and returns only after indexing.
+There is no server-side document list, status polling, or delete route yet, so
+completed document metadata is persisted locally and the app does not claim
+server synchronization or deletion.
+
 ## Proposed ingestion and question flows
 
-1. The app sends a PDF with a bearer token. The API validates the token and
-   writes to a generated private temporary path with size limits.
+1. The current Flutter client sends a PDF in the multipart field `file`.
+   Authentication is not implemented on this route yet. The API validates
+   upload size and PDF content before indexing.
 2. The current API synchronously extracts page text, rejects unusable
    documents, chunks by page, embeds, and writes chunks with `document_id` and
    one-based `page_number` metadata. It returns a generated document ID after
@@ -54,13 +72,13 @@ domain-facing repositories. Widgets do not call HTTP or model APIs directly.
    authorization boundary because authentication and ownership checks are not
    yet implemented.
 4. When passages exist, the backend passes bounded, page-preserving evidence
-   to Gemini. The model is instructed to answer only from that evidence and
-   abstain when it is inadequate. The backend validates its structured
-   response and each cited excerpt against the retrieved set, then constructs
-   citation page numbers from retrieved passage metadata—not model-invented
-   page numbers. No retrieved evidence returns an explicit abstention without
-   calling Gemini; invalid citations and provider failures return structured
-   errors, never fabricated citations.
+   to the local Ollama model. The model is instructed to answer only from that
+   evidence and abstain when it is inadequate. The backend validates its
+   structured response and each cited excerpt against the retrieved set, then
+   constructs citation page numbers from retrieved passage metadata—not
+   model-invented page numbers. No retrieved evidence returns an explicit
+   abstention without calling the model; invalid citations and provider
+   failures return structured errors, never fabricated citations.
 
 Chroma metadata is useful for filtering but is not an authorization boundary:
 ownership is enforced by the SQLite lookup and query construction before
@@ -122,10 +140,6 @@ page-aware evidence and generate a grounded answer). They currently have no
 authentication, and do not yet implement the broader table's ownership,
 status, or lifecycle behavior.
 
-Do not add a public MCP tool-execution endpoint. If an MCP demonstration is
-included, keep it behind an explicit development/admin boundary and expose only
-fixed, reviewed operations.
-
 ### Main response models
 
 - `User`: `id: UUID`, `email: normalized string`, `password_hash`, timestamps.
@@ -178,7 +192,7 @@ belong in a private filesystem volume, not SQLite.
 │   │   │   ├── auth/
 │   │   │   ├── documents/
 │   │   │   └── questions/
-│   │   ├── infrastructure/           # SQLite, Chroma, Gemini, MCP adapters
+│   │   ├── infrastructure/           # SQLite, Chroma, Ollama adapters
 │   │   └── workers/                  # In-process ingestion task
 │   └── tests/
 │       ├── unit/
@@ -192,44 +206,3 @@ belong in a private filesystem volume, not SQLite.
 
 Do not create every directory up front. Add only the modules needed by each
 milestone, and keep fixtures free of real/private PDFs.
-
-## MCP server recommendation
-
-**Proposed existing server:** the official
-[`@modelcontextprotocol/server-filesystem`](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem)
-server, consumed by the backend through the official
-[Python MCP SDK](https://github.com/modelcontextprotocol/python-sdk).
-
-- **Tools/capabilities:** filesystem read/write, directory listing and
-  creation/deletion, move, search, and metadata operations; access is limited
-  to configured directories or MCP Roots.
-- **Transport:** launch the Node server as a local `stdio` subprocess from the
-  Python MCP client. The Python SDK documents client support for stdio and
-  Streamable HTTP; the filesystem server's local process integration is the
-  simplest no-hosted-service option. This requires Node/npm, which were present
-  in the inspected shell.
-- **MVP role:** a small, optional development/admin integration over a
-  dedicated fixture directory, not the PDF ingestion path, user upload store,
-  question-answer path, or vector database. A compatible client should
-  discover tools, validate arguments, and invoke only fixed, explicitly
-  allow-listed read/list operations. Do not expose a generic call-tool API to
-  the app.
-- **Limitations:** it is a filesystem utility, not a PDF processor, document
-  authorization system, embedding service, or vector search server. It cannot
-  replace PyMuPDF, Chroma, SQLite, or backend ownership checks. It adds a Node
-  runtime and another process to supervise.
-- **Security:** the server can mutate files and directories. A client-side
-  allow-list is not an access-control boundary. Give it a dedicated fixture
-  root with OS/container-level read-only permissions; never give it the upload
-  directory, repository secrets, home directory, or arbitrary client-supplied
-  paths. Treat tool output as untrusted; bound calls and output size; validate
-  schemas and timeouts; do not forward secrets. Leave integration disabled by
-  default outside local development until its deployment and authentication
-  boundary is reviewed.
-- **Vector capability verification:** the documented filesystem tools do not
-  provide vector search. No MCP vector capability is assumed or required.
-
-This is a recommendation for review, not an installed or connected server. If
-the intended MCP server is an existing one you already operate, its name,
-transport, tool catalog, authentication, and data-access scope should be
-verified before substituting it.

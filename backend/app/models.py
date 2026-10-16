@@ -49,22 +49,6 @@ class RetrievalResponse(BaseModel):
     passages: List[RetrievedPassage] = Field(default_factory=list)
 
 
-class ResearchSearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=500)
-
-    @field_validator("query")
-    @classmethod
-    def reject_blank_query(cls, query: str) -> str:
-        query = query.strip()
-        if not query:
-            raise ValueError("Query must not be blank")
-        return query
-
-
-class ResearchSearchResponse(BaseModel):
-    content: str
-
-
 class ValidationIssue(BaseModel):
     location: List[Union[str, int]]
     message: str

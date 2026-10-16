@@ -7,7 +7,9 @@ from app.config import Settings
 from app.documents import (
     ChromaVectorStore,
     DocumentPipeline,
+    OllamaEmbeddingProvider,
     PageText,
+    PipelineError,
     RetrievedChunk,
     TextChunk,
     chunk_pages,
@@ -15,6 +17,7 @@ from app.documents import (
 )
 from app.main import create_app
 from app.models import AnswerCitation, QuestionResponse
+from app.ollama_client import OllamaError
 
 
 def make_pdf(*page_texts: str) -> bytes:
@@ -31,6 +34,41 @@ def make_pdf(*page_texts: str) -> bytes:
 class FakeEmbedder:
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         return [[float(len(text)), 1.0] for text in texts]
+
+
+def test_ollama_embedding_provider_uses_injected_local_client() -> None:
+    class FakeOllamaClient:
+        def embed(self, model, texts):
+            assert model == "test-embedding-model"
+            assert list(texts) == ["document text"]
+            return [[0.25, 0.75]]
+
+    provider = OllamaEmbeddingProvider(
+        Settings(ollama_embedding_model="test-embedding-model"),
+        client=FakeOllamaClient(),
+    )
+
+    assert provider.embed(["document text"]) == [[0.25, 0.75]]
+
+
+def test_ollama_embedding_provider_preserves_local_service_errors() -> None:
+    class FailingOllamaClient:
+        def embed(self, _model, _texts):
+            raise OllamaError("ollama_unavailable", "Start local Ollama.", 503)
+
+    provider = OllamaEmbeddingProvider(
+        Settings(),
+        client=FailingOllamaClient(),
+    )
+
+    try:
+        provider.embed(["document text"])
+    except PipelineError as error:
+        assert error.code == "ollama_unavailable"
+        assert error.status_code == 503
+        assert str(error) == "Start local Ollama."
+    else:
+        raise AssertionError("Expected a local model error to be translated.")
 
 
 class FakeVectorStore:

@@ -3,9 +3,9 @@ from typing import List, Optional, Protocol, Sequence
 from uuid import uuid4
 
 import fitz
-from openai import APIError, OpenAI
 
 from app.config import Settings
+from app.ollama_client import OllamaClient, OllamaError
 
 
 class PipelineError(Exception):
@@ -127,30 +127,23 @@ def chunk_pages(
     return chunks
 
 
-class OpenAIEmbeddingProvider:
-    def __init__(self, api_key: str, model: str) -> None:
-        self._client = OpenAI(api_key=api_key) if api_key else None
-        self._model = model
+class OllamaEmbeddingProvider:
+    def __init__(
+        self,
+        settings: Settings,
+        client: Optional[EmbeddingProvider] = None,
+    ) -> None:
+        self._client = client or OllamaClient(
+            base_url=settings.ollama_base_url,
+            timeout_seconds=settings.ollama_timeout_seconds,
+        )
+        self._model = settings.ollama_embedding_model
 
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
-        if self._client is None:
-            raise PipelineError(
-                "embedding_not_configured",
-                "Document embeddings are not configured on this server.",
-                503,
-            )
         try:
-            response = self._client.embeddings.create(
-                model=self._model,
-                input=list(texts),
-            )
-        except APIError as exc:
-            raise PipelineError(
-                "embedding_provider_error",
-                "The embedding provider could not process the request.",
-                502,
-            ) from exc
-        return [item.embedding for item in response.data]
+            return self._client.embed(self._model, texts)
+        except OllamaError as exc:
+            raise PipelineError(exc.code, str(exc), exc.status_code) from exc
 
 
 class ChromaVectorStore:
@@ -234,10 +227,7 @@ class DocumentPipeline:
     @classmethod
     def from_settings(cls, settings: Settings) -> "DocumentPipeline":
         return cls(
-            embedder=OpenAIEmbeddingProvider(
-                api_key=settings.openai_api_key,
-                model=settings.embedding_model,
-            ),
+            embedder=OllamaEmbeddingProvider(settings),
             vector_store=ChromaVectorStore(
                 persist_directory=settings.chroma_persist_directory,
                 collection_name=settings.chroma_collection_name,

@@ -2,12 +2,14 @@
 
 ## Status
 
-The Flutter app shell for milestone 1 is implemented. The backend foundation
-also includes synchronous PDF upload validation, PyMuPDF extraction,
-page-aware chunking, OpenAI embeddings, persistent Chroma indexing,
-document-scoped passage retrieval, and Gemini-backed grounded answers with
-validated citations and abstention. Authentication, document lifecycle and
-ownership, relevance thresholds, and later milestones remain proposed.
+The Flutter app shell and its Riverpod repositories, PDF upload/library, and
+document-scoped chat are implemented against the existing FastAPI contracts.
+The backend foundation also includes synchronous PDF upload validation,
+PyMuPDF extraction, page-aware chunking, local Ollama embeddings, persistent
+Chroma indexing, document-scoped passage retrieval, and locally generated
+grounded answers with validated citations and abstention. Authentication,
+server-side document lifecycle and ownership, relevance thresholds, and later
+milestones remain proposed.
 
 ## Milestones
 
@@ -15,10 +17,7 @@ ownership, relevance thresholds, and later milestones remain proposed.
 
 - Install/select Python 3.12 for backend development; current shell Python is
   3.9.6. Confirm Android Studio's bundled JDK and `adb` or put them on PATH.
-- Confirm the Gemini API account, selected model(s), billing/quotas, data
-  handling, and budget before any live API call.
-- Review PDF size/page caps and whether the proposed local filesystem MCP
-  fixture integration meets the MCP requirement.
+- Install Ollama and download the configured local embedding and answer models.
 - Add backend package metadata/lockfile, then resolve compatible versions.
   Pin Flutter candidate dependencies and verify with `flutter pub get`.
 
@@ -54,7 +53,7 @@ prove a user's token cannot read or mutate another user's records.
 
 - [x] Add multipart upload validation, configurable byte/page limits, PyMuPDF
   extraction with page numbering, and API-level processing.
-- [x] Add page-aware chunking, OpenAI embedding adapter, and persistent Chroma
+- [x] Add page-aware chunking, local Ollama embedding adapter, and persistent Chroma
   indexing/retrieval.
 - [ ] Add generated storage paths, safe filename handling, and document status
   persistence.
@@ -73,7 +72,7 @@ integration and the other listed cases remain to be added.
 ### 4. Grounded question answering
 
 - [x] Retrieve page-aware passages per document and send bounded evidence
-  context to a backend-only Gemini adapter.
+  context to a local Ollama adapter.
 - [x] Validate structured model output, require supporting excerpts from
   retrieved passages, construct page citations from retrieval metadata, and
   explicitly abstain when evidence is missing or insufficient.
@@ -83,7 +82,7 @@ integration and the other listed cases remain to be added.
 
 **Tests:** relevant evidence and citation mapping, no retrieved evidence,
 model abstention, malformed model output, invented citations, provider errors,
-and Gemini timeout, using a mocked model client. Prompt-injection text is
+and local-model timeout, using a mocked model client. Prompt-injection text is
 passed as quoted evidence, but dedicated adversarial prompt tests and
 cross-document/cross-user authorization tests remain to be added. **Exit:**
 answers cite only retrieved page-aware excerpts or return an explicit
@@ -91,44 +90,49 @@ abstention.
 
 ### 5. Connect Flutter flows end to end
 
-- Implement login/register, PDF selection/upload, document list/status/delete,
-  question composer, answer, citations, and actionable error states.
-- Handle lifecycle/retries, pagination, progress, empty/loading states, and
-  backend outages. Validate keyboard, scrolling, and narrow Android layouts.
+- [x] Add Android PDF selection, multipart upload, byte progress, and safe
+  backend error display.
+- [x] Add a device-local library for successful uploads, client-observed
+  processing/error states, retry, and document-scoped questions with citations.
+- [ ] Add login/register and server-backed document list/status/delete after
+  those routes exist in FastAPI. The current API supports neither server-side
+  library synchronization nor deletion.
+- [x] Add empty/loading/error states and fake-repository widget and API
+  contract tests.
+- [ ] Validate keyboard, scrolling, and narrow Android layouts on a device.
 
-**Tests:** Flutter unit/widget tests with fake repositories; API integration
-tests with local backend; manual Android emulator/device smoke pass for file
-picker, upload, polling, Q&A, logout, and error cases. **Exit:** an Android
-user can complete the complete flow without embedding any privileged secret.
+**Tests:** Flutter repository contract tests use a local HTTP server and
+widget tests use fake repositories; backend route contracts are covered by
+pytest. A manual Android emulator/device smoke pass remains outstanding.
 
-### 6. MCP integration and safe developer workflow
+### 6. Dockerize the backend
 
-- Add a Python MCP client adapter behind an explicit configuration flag.
-- Start the official filesystem MCP server only against a dedicated fixture
-  directory; client-allow-list fixed read/list tools and apply process, path,
-  timeout, and output limits.
-- Add integration tests with a controlled fixture and verify disallowed tools,
-  paths, and malformed arguments are rejected. Do not connect it to uploaded
-  PDFs or RAG.
+- Add a minimal, non-root backend image with only runtime dependencies and a
+  health check.
+- Add local Compose configuration for FastAPI and persistent Chroma data.
+- Configure the container to reach Ollama on the host without exposing
+  Ollama's API to the network; document platform-specific host addresses.
+- Keep secrets out of the image and logs; document environment configuration,
+  persistence, backup, and reset behavior.
 
-**Exit:** a reviewer can see a working compatible MCP client/server exchange,
-and the integration has no access to user files or secrets. If this does not
-add portfolio value, revisit the exact requirement before widening its role.
+**Tests:** build the image, start the service, verify its health endpoint and
+PDF/Q&A path with a fake or local model, and confirm Chroma data persists
+across container restarts. **Exit:** a developer can run the backend with
+Docker using documented setup and the existing local Ollama models.
 
-### 7. CI, container, and local deployment
+### 7. GitHub Actions CI/CD
 
-- Add GitHub Actions for Flutter formatting/analyze/tests and Python lint,
-  typing, and pytest; build the Android debug APK. Cache dependencies safely
-  and use fakes so CI does not need Gemini credentials.
-- Add a non-root backend container, health checks, `.env.example`, and local
-  Compose configuration with persistent volumes for SQLite, Chroma, and
-  uploads. Keep secrets out of the image and logs.
-- Document backup/restore and reset procedures. Do not make reset scripts
-  destructive without explicit operator confirmation.
+- Add pull-request and push workflows for Flutter formatting/analyze/tests,
+  backend tests, and Docker image build.
+- Use dependency caching and test fakes; CI must not need Ollama downloads,
+  model/API credentials, or real PDFs.
+- Add a controlled release/deployment workflow only after choosing a hosting
+  target, secret management, and approval policy. Keep deployment credentials
+  out of pull-request workflows.
 
-**Tests:** CI from a clean checkout; backend container health/readiness; volume
-persistence across restart; local end-to-end walkthrough. **Exit:** CI is green
-and a developer can reproduce the flow from documented setup.
+**Tests:** workflows pass from a clean checkout, including Docker image build.
+**Exit:** GitHub Actions validates changes automatically; release deployment
+is enabled only after its target and operational policy are configured.
 
 ## Test strategy summary
 
@@ -138,10 +142,10 @@ and a developer can reproduce the flow from documented setup.
 | Flutter widget | `flutter_test` with fake repositories/providers. | Loading, empty, processing, ready, failed, citations, retry, navigation. |
 | Backend unit | pytest; inject fake embedding/model/vector adapters. | Chunk boundaries/page numbers, ownership filtering, state transitions, thresholds, error mapping. |
 | Backend API | FastAPI test client + temporary SQLite/files/Chroma collection. | Auth, multipart validation, CRUD permissions, status polling, question response contract. |
-| Backend integration | Local real PyMuPDF and Chroma; fake Gemini. | Parse/index/retrieve/delete/restart behavior, partial failures, cross-user isolation. |
-| MCP | Local stdio server, isolated fixture root, deterministic test data. | Tool discovery, schema validation, allowed calls only, path escapes and writes rejected. |
-| End-to-end | Android emulator/device + local backend; Gemini only in a separate opt-in smoke test. | Upload a non-sensitive fixture PDF, verify page citation, explicit abstention, and backend errors. |
-| CI | GitHub Actions; no production secrets. | Formatting, lint/type checks, tests, Android debug build, backend image build. |
+| Backend integration | Local real PyMuPDF and Chroma; fake Ollama model client. | Parse/index/retrieve/delete/restart behavior, partial failures, cross-user isolation. |
+| End-to-end | Android emulator/device + FastAPI and Ollama on the backend computer. | Upload a non-sensitive fixture PDF, verify page citation, explicit abstention, and backend errors. |
+| Container | Docker/Compose; local data volume and local Ollama. | Image builds, health check, API smoke test, persistent Chroma volume across restart. |
+| CI/CD | GitHub Actions; no production secrets in pull requests. | Formatting, lint/type checks, tests, Android debug build, backend image build; gated deploy after target selection. |
 
 Do not assert that model output is grounded solely because a prompt requests
 citations. Tests must verify returned citation IDs belong to retrieved chunks
@@ -149,17 +153,19 @@ and that page/excerpt values are reconstructed by the backend.
 
 ## Deployment approach
 
-1. **Local development:** Flutter Android app points to a developer-run API.
-   Use non-sensitive sample PDFs and a local `.env` ignored by Git. Gemini
-   calls are opt-in after billing and data-handling review.
-2. **CI:** run unit/integration tests with fake Gemini and temporary storage;
-   do not store Gemini or MCP credentials in pull-request workflows.
-3. **Portfolio demo:** one Dockerized API instance with private persistent
+1. **Local development:** Flutter Android app points to a developer-run API
+   and Ollama instance. Use non-sensitive sample PDFs; never commit
+   credentials.
+2. **Container:** run the backend with Docker and persist Chroma data in a
+   named volume. Ollama remains a separate host service for local development.
+3. **CI/CD:** validate Flutter, backend, and Docker image in GitHub Actions.
+   Add a deployment job only after a host and secret policy are selected.
+4. **Portfolio demo:** one Dockerized API instance with private persistent
    volumes for uploads, SQLite, and Chroma. Bind to localhost or deploy only
    after selecting a host and reviewing cost, TLS, authentication, backups,
    rate limits, retention, and data residency. A public demo needs a stronger
    abuse/rate-limit policy than the local MVP.
-4. **Release:** build a signed Android artifact only after signing keys and
+5. **Release:** build a signed Android artifact only after signing keys and
    release distribution are configured outside the repository. GitHub Actions
    release credentials must be narrowly scoped and stored as protected
    secrets.

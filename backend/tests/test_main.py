@@ -35,10 +35,63 @@ def test_health_endpoint_is_documented_with_response_schema() -> None:
     ]["application/json"]["schema"]["$ref"].endswith("/HealthResponse")
 
 
+def test_cors_allows_local_web_origins_in_development() -> None:
+    client = TestClient(create_app(Settings(environment="development")))
+
+    response = client.options(
+        "/v1/documents",
+        headers={
+            "Origin": "http://127.0.0.1:8765",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.headers["access-control-allow-origin"]
+        == "http://127.0.0.1:8765"
+    )
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
+def test_cors_uses_configured_origins_outside_development() -> None:
+    client = TestClient(
+        create_app(
+            Settings(
+                environment="production",
+                cors_allowed_origins="https://app.example.com",
+            )
+        )
+    )
+
+    allowed = client.options(
+        "/v1/documents",
+        headers={
+            "Origin": "https://app.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    disallowed = client.options(
+        "/v1/documents",
+        headers={
+            "Origin": "http://localhost:8765",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert (
+        allowed.headers["access-control-allow-origin"]
+        == "https://app.example.com"
+    )
+    assert "access-control-allow-origin" not in disallowed.headers
+
+
 def test_settings_read_environment_variables(monkeypatch) -> None:
     monkeypatch.setenv("DOCUMIND_APP_NAME", "Configured API")
     monkeypatch.setenv("DOCUMIND_ENVIRONMENT", "staging")
     monkeypatch.setenv("DOCUMIND_DEBUG", "true")
+    monkeypatch.setenv("DOCUMIND_OLLAMA_CHAT_MODEL", "test-chat-model")
     get_settings.cache_clear()
 
     try:
@@ -49,6 +102,7 @@ def test_settings_read_environment_variables(monkeypatch) -> None:
     assert settings.app_name == "Configured API"
     assert settings.environment == "staging"
     assert settings.debug is True
+    assert settings.ollama_chat_model == "test-chat-model"
 
 
 def test_question_contract_validates_request_and_response() -> None:

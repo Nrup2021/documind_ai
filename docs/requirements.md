@@ -4,10 +4,10 @@
 
 This is a planning document, not a claim that all proposed features exist. The
 repository contains a Flutter foundation and a FastAPI backend with synchronous
-PDF extraction, page-aware chunking, OpenAI embeddings, persistent Chroma
-indexing, document-scoped retrieval, Gemini-backed grounded answer generation,
-and optional MCP web research. Authentication, metadata and document lifecycle
-management, Docker configuration, and CI workflow remain unimplemented.
+PDF extraction, page-aware chunking, local Ollama embeddings, persistent Chroma
+indexing, document-scoped retrieval, local grounded answer generation, and
+document Q&A. Authentication, metadata and document lifecycle management,
+Docker configuration, and GitHub Actions CI/CD remain unimplemented.
 
 **Proposed MVP:** one Flutter Android client, one modular FastAPI service, and
 one local persistent data store. Users authenticate, upload PDFs, see ingestion
@@ -35,7 +35,7 @@ server-side ownership checks.
    - A question can be submitted only for a document owned by the caller and
      in `ready` state.
    - The backend retrieves relevant chunks only from that document, generates
-     an answer with Gemini, and returns page numbers and excerpts sourced from
+     an answer with a local model, and returns page numbers and excerpts sourced from
      those retrieved chunks.
    - If evidence is insufficient, the API returns an explicit
      `insufficient_evidence` result rather than a confident-looking guess.
@@ -45,7 +45,7 @@ server-side ownership checks.
    - Deleting a document removes its metadata, source file, and vector entries;
      retries and partial failures are observable and do not grant access.
 5. **Keep secrets and authorization server-side**
-   - The Gemini key, JWT signing key, and MCP process configuration never ship
+   -    Any backend secrets, including a future JWT signing key, never ship
      in the Flutter app.
    - Every document read, delete, status lookup, and question operation checks
      ownership using the authenticated principal. A client-supplied document
@@ -69,8 +69,8 @@ The following are initial, configurable MVP defaults—not measured limits:
 - Retrieved text is untrusted. It may contain instructions or hostile prompt
   injection. Treat it only as quoted evidence; do not execute instructions
   from it, and do not give the answer model tools or filesystem access.
-- Set timeouts and bounded retries for Gemini. Do not silently convert provider
-  or indexing failures into empty answers.
+- Set timeouts for local model requests. Do not silently convert model or
+  indexing failures into empty answers.
 
 ## Proposed dependency choices
 
@@ -85,28 +85,20 @@ candidates, not dependencies installed in this repository:
 | Backend API/schema | FastAPI with Pydantic 2 | Typed request/response validation and OpenAPI; use a supported Python runtime. |
 | PDF extraction | PyMuPDF (`PyMuPDF==1.25.5`) | Page-oriented extraction; page metadata remains one-based through chunking and retrieval. |
 | RAG store | Chroma (`chromadb==0.5.23`) | Persisted local vector collection; SQLite remains the planned source of truth for ownership and document metadata. |
-| Embeddings | OpenAI `text-embedding-3-small` (`openai==1.76.2`) | Supported embedding model called server-side; configured through `DOCUMIND_OPENAI_API_KEY`. |
-| Answer generation | `google-genai==1.11.0` | Use Gemini Developer API from the backend only; configure `DOCUMIND_GEMINI_API_KEY`. |
-| MCP client | Official MCP Python SDK (`mcp`) | Compatible MCP client; use a Python version supported by the selected SDK. |
-| Backend tests | pytest, HTTPX test client, and fakes for external/model boundaries | Deterministic tests without making paid Gemini requests. |
+| Local model runtime | Ollama | Run open embedding and chat models on the computer hosting FastAPI; no OpenAI/Gemini API credentials required. |
+| Embeddings | Ollama `nomic-embed-text` | Local embeddings sent to Chroma; use a dedicated collection for each embedding model. |
+| Answer generation | Ollama `qwen2.5:3b` | Local model receives retrieved passages and returns structured answers with citations. |
+| Backend tests | pytest, HTTPX test client, and fakes for external/model boundaries | Deterministic tests without calling hosted model APIs. |
 
 Backend dependencies are pinned in `backend/requirements.txt`; Python 3.9.6 is
-the current local backend interpreter. The backend dependencies are selected
-for that runtime. The proposed MCP Python SDK may require a newer Python and
-will need a separate compatibility check when that milestone is implemented.
-Flutter candidates above meet the inspected local SDK constraints, but still
-need resolution through `flutter pub get`.
+the current local backend interpreter. Flutter candidates above meet the
+inspected local SDK constraints, but still need resolution through
+`flutter pub get`.
 
-The current embedding API pricing assumption is OpenAI `text-embedding-3-small`
-at $0.02 per million input tokens, based on [OpenAI's published standard API
-pricing](https://developers.openai.com/api/docs/pricing) checked 2026-10-16.
-Prices, discounts, taxes, quotas, and account eligibility may change; verify
-the live pricing and billing before use. The backend sends extracted PDF
-chunks and questions to OpenAI for embeddings, and sends retrieved passages
-and questions to Gemini for answer generation. Both API credentials remain
-server-side and are not included in Flutter. Chroma is local, with no
-vector-service API charge; compute, storage, backups, and hosting still incur
-costs. Check Gemini pricing and data-handling terms before enabling live calls.
+PDF embeddings and answer generation run through Ollama on the backend host, so
+the app does not depend on OpenAI or Gemini quotas or send document content to
+those providers. Model inference is not cost-free in resources: model downloads
+consume disk, and local inference consumes host memory and CPU/GPU.
 
 ## Explicitly out of scope for the MVP
 
@@ -116,8 +108,6 @@ costs. Check Gemini pricing and data-handling terms before enabling live calls.
   decryption. Return a clear unsupported/unreadable-document error instead.
 - Background job infrastructure, distributed workers, microservices,
   Kubernetes, multi-agent orchestration, and horizontal scaling.
-- Exposing MCP tools to the mobile client or using MCP as the RAG/vector
-  database.
 - Production identity-provider integrations, billing, analytics, and
   multi-region backup. Add only after requirements and cost are reviewed.
 
