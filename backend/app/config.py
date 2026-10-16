@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     chroma_persist_directory: str = "./data/chroma"
     chroma_collection_name: str = "document_chunks"
+    tavily_api_key: str = ""
+    mcp_timeout_seconds: float = Field(default=20, gt=0, le=120)
 
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":

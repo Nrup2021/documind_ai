@@ -4,17 +4,20 @@ This directory contains a FastAPI service with PDF ingestion and passage
 retrieval. It validates upload size, extracts page text with PyMuPDF, preserves
 one-based page numbers in text chunks, embeds with OpenAI, and stores/retrieves
 vectors in a persistent local Chroma collection. It also provides `GET
-/health` and typed API contracts.
+/health`, typed API contracts, and optional web research through Tavily's MCP
+server.
 
 Authentication, document metadata/lifecycle management, answer generation,
-Gemini, and MCP integrations are not implemented. The document and question
-routes are therefore a local development foundation, not a production-ready
-multi-user service.
+and Gemini are not implemented. The document and question routes are therefore
+a local development foundation, not a production-ready multi-user service.
+Web research is a separate optional route; PDF ingestion and RAG retrieval do
+not depend on MCP.
 
 ## Requirements
 
-- Python 3.9 or newer
+- Python 3.10 or newer (required by the official MCP Python client SDK)
 - `venv` and `pip`
+- Node.js 20 or newer and npm/npx (required to run Tavily's stdio MCP server)
 
 ## Set up a virtual environment
 
@@ -68,6 +71,40 @@ distance. Chroma is filtered by the requested document ID, but the API has no
 authentication or document ownership checks yet. Do not expose it to untrusted
 clients.
 
+## Optional MCP web research
+
+Set `DOCUMIND_TAVILY_API_KEY` on the backend process to enable the separate
+`POST /v1/research/search` endpoint:
+
+```sh
+curl -H "Content-Type: application/json" \
+  -d '{"query":"Recent approaches to document question answering"}' \
+  http://127.0.0.1:8000/v1/research/search
+```
+
+The backend launches Tavily's maintained `tavily-mcp@0.2.22` package over
+stdio using the official MCP Python client (`mcp==2.3.0`). Each request
+discovers the server's tools, validates the `tavily_search` input schema, and
+invokes only that search tool with the validated query. Although the server
+also advertises extraction, crawling, mapping, and research tools, the backend
+does not call or expose them. The backend caps each search at five results and
+bounds query length, response size, and request time. The API key is passed
+only to the child process via the SDK's restricted environment; the subprocess
+also runs from an isolated temporary working directory so it cannot load a
+backend `.env` file. The key is not placed in a URL or returned to clients.
+
+Web search is disabled when the API key is unset and reports a structured
+`503` error. MCP startup, tool, and timeout failures are reported separately
+from the document pipeline. Search queries and results are sent to/received
+from Tavily and should be treated as external, untrusted data. The subprocess
+runs as the backend OS user, so deploy the backend with an appropriately
+restricted user/container and review the pinned npm package before upgrading.
+The direct package is pinned, but its npm dependencies use version ranges and
+are resolved by `npx`; for reproducible production deployments, bake a reviewed
+dependency tree into the deployment image. Do not include private document
+contents in a search query. The MCP endpoint does not read from or write to the
+RAG store.
+
 ## Configuration
 
 Configuration is read from environment variables using the `DOCUMIND_` prefix:
@@ -86,6 +123,8 @@ Configuration is read from environment variables using the `DOCUMIND_` prefix:
 | `DOCUMIND_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
 | `DOCUMIND_CHROMA_PERSIST_DIRECTORY` | `./data/chroma` | Local persistent Chroma data directory |
 | `DOCUMIND_CHROMA_COLLECTION_NAME` | `document_chunks` | Chroma collection |
+| `DOCUMIND_TAVILY_API_KEY` | unset | Enables Tavily MCP web research; stored only on the backend |
+| `DOCUMIND_MCP_TIMEOUT_SECONDS` | `20` | Total time limit for MCP startup, discovery, and invocation (maximum 120) |
 
 For example, set `DOCUMIND_ENVIRONMENT=local` before starting Uvicorn.
 
@@ -112,5 +151,6 @@ python -m pytest
 
 The tests cover health status, the OpenAPI health response schema, Pydantic
 question contracts, structured errors, PDF validation and size limits, empty
-extracted text, page-aware chunks, and document-scoped passage retrieval. Tests
-use fake embedding/vector adapters and do not make paid API requests.
+extracted text, page-aware chunks, document-scoped passage retrieval, and MCP
+tool discovery/invocation using a mock MCP client. Tests do not make paid API
+requests.

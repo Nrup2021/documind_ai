@@ -9,11 +9,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, get_settings
 from app.documents import DocumentPipeline, PipelineError
+from app.mcp_research import (
+    MCPIntegrationError,
+    ResearchProvider,
+    TavilyResearchProvider,
+)
 from app.models import (
     DocumentUploadResponse,
     ErrorResponse,
     HealthResponse,
     QuestionRequest,
+    ResearchSearchRequest,
+    ResearchSearchResponse,
     RetrievedPassage,
     RetrievalResponse,
     ValidationIssue,
@@ -25,6 +32,7 @@ logger = logging.getLogger(__name__)
 def create_app(
     settings: Optional[Settings] = None,
     pipeline: Optional[DocumentPipeline] = None,
+    research_provider: Optional[ResearchProvider] = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     application = FastAPI(
@@ -32,6 +40,11 @@ def create_app(
         debug=app_settings.debug,
     )
     application.state.document_pipeline = pipeline
+    application.state.research_provider = (
+        research_provider
+        if research_provider is not None
+        else TavilyResearchProvider(app_settings)
+    )
 
     def get_pipeline() -> DocumentPipeline:
         if application.state.document_pipeline is None:
@@ -102,9 +115,33 @@ def create_app(
             ],
         )
 
+    @application.post(
+        "/v1/research/search",
+        response_model=ResearchSearchResponse,
+        tags=["research"],
+    )
+    async def search_web(request: ResearchSearchRequest) -> ResearchSearchResponse:
+        content = await application.state.research_provider.search(request.query)
+        return ResearchSearchResponse(content=content)
+
     @application.exception_handler(PipelineError)
     async def pipeline_error_handler(
         _request: Request, exc: PipelineError
+    ) -> JSONResponse:
+        response = ErrorResponse(
+            error={
+                "code": exc.code,
+                "message": str(exc),
+            }
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=response.model_dump(exclude_none=True),
+        )
+
+    @application.exception_handler(MCPIntegrationError)
+    async def mcp_error_handler(
+        _request: Request, exc: MCPIntegrationError
     ) -> JSONResponse:
         response = ErrorResponse(
             error={
