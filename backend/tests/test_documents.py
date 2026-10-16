@@ -14,6 +14,7 @@ from app.documents import (
     extract_pdf_pages,
 )
 from app.main import create_app
+from app.models import AnswerCitation, QuestionResponse
 
 
 def make_pdf(*page_texts: str) -> bytes:
@@ -60,6 +61,26 @@ class FakeVectorStore:
         ]
 
 
+class FakeAnswerProvider:
+    def answer(self, question, passages):
+        if not passages:
+            return QuestionResponse(
+                outcome="insufficient_evidence",
+                answer="The available document passages do not provide enough "
+                "evidence to answer this question.",
+            )
+        return QuestionResponse(
+            outcome="answered",
+            answer="The relevant passage is on page one.",
+            citations=[
+                AnswerCitation(
+                    page_number=passages[0].page_number,
+                    excerpt=passages[0].text,
+                )
+            ],
+        )
+
+
 def make_test_client(
     settings: Optional[Settings] = None,
 ) -> tuple[TestClient, FakeVectorStore]:
@@ -70,7 +91,9 @@ def make_test_client(
         chunk_size=1200,
         chunk_overlap=180,
     )
-    return TestClient(create_app(settings or Settings(), pipeline)), vector_store
+    return TestClient(
+        create_app(settings or Settings(), pipeline, answer_provider=FakeAnswerProvider())
+    ), vector_store
 
 
 def test_invalid_pdf_upload_returns_structured_error() -> None:
@@ -143,18 +166,10 @@ def test_question_retrieves_page_aware_passages_from_requested_document() -> Non
     assert document_id in vector_store.documents
     assert response.status_code == 200
     assert response.json() == {
-        "document_id": document_id,
-        "passages": [
-            {
-                "text": "The relevant passage is on page one.",
-                "page_number": 1,
-                "distance": 0.1,
-            },
-            {
-                "text": "Another page.",
-                "page_number": 2,
-                "distance": 0.1,
-            },
+        "outcome": "answered",
+        "answer": "The relevant passage is on page one.",
+        "citations": [
+            {"page_number": 1, "excerpt": "The relevant passage is on page one."}
         ],
     }
 
@@ -169,8 +184,12 @@ def test_retrieval_does_not_return_another_documents_chunks() -> None:
 
     assert response.status_code == 200
     assert response.json() == {
-        "document_id": "not-indexed",
-        "passages": [],
+        "outcome": "insufficient_evidence",
+        "answer": (
+            "The available document passages do not provide enough evidence to "
+            "answer this question."
+        ),
+        "citations": [],
     }
 
 

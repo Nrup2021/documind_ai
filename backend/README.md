@@ -7,11 +7,11 @@ vectors in a persistent local Chroma collection. It also provides `GET
 /health`, typed API contracts, and optional web research through Tavily's MCP
 server.
 
-Authentication, document metadata/lifecycle management, answer generation,
-and Gemini are not implemented. The document and question routes are therefore
-a local development foundation, not a production-ready multi-user service.
-Web research is a separate optional route; PDF ingestion and RAG retrieval do
-not depend on MCP.
+Authentication and document metadata/lifecycle management are not implemented.
+The question route retrieves page-aware evidence and generates a grounded
+answer with Gemini. The document and question routes are a local development
+foundation, not a production-ready multi-user service. Web research is a
+separate optional route; PDF ingestion and RAG do not depend on MCP.
 
 ## Requirements
 
@@ -47,18 +47,20 @@ API documentation is at `http://127.0.0.1:8000/docs`.
 
 ## PDF API
 
-Set `DOCUMIND_OPENAI_API_KEY` on the backend process before using the document
-routes. The key is never sent by the client. The current default upload limit is
-25 MiB and the page limit is 500; both are configurable. Upload is synchronous:
-it returns only after extraction, embedding, and indexing succeed.
+Set `DOCUMIND_OPENAI_API_KEY` on the backend process before uploading documents,
+and `DOCUMIND_GEMINI_API_KEY` before asking questions about documents with
+retrieved passages. Both keys are used only by the backend and are never sent by
+the Flutter client. The current default upload limit is 25 MiB and the page
+limit is 500; both are configurable. Upload is synchronous: it returns only
+after extraction, embedding, and indexing succeed.
 
 ```sh
 curl -F "file=@report.pdf;type=application/pdf" \
   http://127.0.0.1:8000/v1/documents
 ```
 
-The response contains `document_id`, `page_count`, and `chunk_count`. Retrieve
-the nearest passages for a question using that ID:
+The response contains `document_id`, `page_count`, and `chunk_count`. Ask a
+question using that ID:
 
 ```sh
 curl -H "Content-Type: application/json" \
@@ -66,8 +68,18 @@ curl -H "Content-Type: application/json" \
   http://127.0.0.1:8000/v1/documents/DOCUMENT_ID/questions
 ```
 
-Each returned passage includes its one-based source `page_number` and Chroma
-distance. Chroma is filtered by the requested document ID, but the API has no
+The question endpoint retrieves passages from that document before calling
+Gemini. An answered response includes `outcome: "answered"`, an answer, and
+`citations` with one-based source `page_number` values and exact supporting
+`excerpt` text drawn from retrieved passages. If no passages are found or the
+model reports that they do not support an answer, it returns
+`outcome: "insufficient_evidence"` with an explicit abstention and no
+citations. Model-provided citations are validated against the retrieved
+passages; invented pages or excerpts are rejected as an upstream response
+error. Gemini calls use a configurable timeout and report provider failures
+without returning provider details.
+
+Chroma is filtered by the requested document ID, but the API has no
 authentication or document ownership checks yet. Do not expose it to untrusted
 clients.
 
@@ -118,9 +130,12 @@ Configuration is read from environment variables using the `DOCUMIND_` prefix:
 | `DOCUMIND_MAX_PDF_PAGES` | `500` | Maximum number of PDF pages |
 | `DOCUMIND_CHUNK_SIZE` | `1200` | Approximate maximum chunk length in characters |
 | `DOCUMIND_CHUNK_OVERLAP` | `180` | Approximate overlap in characters between same-page chunks |
-| `DOCUMIND_RETRIEVAL_LIMIT` | `5` | Maximum passages returned per question |
+| `DOCUMIND_RETRIEVAL_LIMIT` | `5` | Maximum passages supplied as evidence per question |
 | `DOCUMIND_OPENAI_API_KEY` | unset | Server-side key used for embeddings |
 | `DOCUMIND_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `DOCUMIND_GEMINI_API_KEY` | unset | Server-side key used for grounded answer generation |
+| `DOCUMIND_GEMINI_MODEL` | `gemini-2.5-flash` | Gemini answer-generation model |
+| `DOCUMIND_GEMINI_TIMEOUT_SECONDS` | `30` | Gemini request timeout (maximum 120 seconds) |
 | `DOCUMIND_CHROMA_PERSIST_DIRECTORY` | `./data/chroma` | Local persistent Chroma data directory |
 | `DOCUMIND_CHROMA_COLLECTION_NAME` | `document_chunks` | Chroma collection |
 | `DOCUMIND_TAVILY_API_KEY` | unset | Enables Tavily MCP web research; stored only on the backend |
@@ -136,9 +151,10 @@ checked on 2026-10-16 lists **$0.02 per million input tokens**. This is an
 estimate based on the provider's current list price, not a quote or guarantee;
 prices, discounts, taxes, quotas, and account eligibility can change. Each
 uploaded page chunk and each question uses embedding input tokens. No
-answer-generation model is called by this pipeline. Chroma is self-hosted and
-has no per-request vendor API price here, but local compute, disk, backups, and
-deployment are not free. Review current provider pricing and billing before
+answer-generation price is specified here; Gemini receives retrieved passages
+and questions when answering. Chroma is self-hosted and has no per-request
+vendor API price here, but local compute, disk, backups, and deployment are not
+free. Review current provider pricing, data handling, and billing before
 enabling live calls.
 
 ## Tests
@@ -151,6 +167,7 @@ python -m pytest
 
 The tests cover health status, the OpenAPI health response schema, Pydantic
 question contracts, structured errors, PDF validation and size limits, empty
-extracted text, page-aware chunks, document-scoped passage retrieval, and MCP
-tool discovery/invocation using a mock MCP client. Tests do not make paid API
-requests.
+extracted text, page-aware chunks, document-scoped passage retrieval followed
+by answer generation, Gemini response/citation validation and errors using a
+mock model client, and MCP tool discovery/invocation using a mock MCP client.
+Tests do not make paid API requests.

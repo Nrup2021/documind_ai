@@ -53,12 +53,17 @@ def test_settings_read_environment_variables(monkeypatch) -> None:
 
 def test_question_contract_validates_request_and_response() -> None:
     request = QuestionRequest(question="What is in this document?")
-    response = QuestionResponse(answer="A summary.", sources=["doc-1"])
+    response = QuestionResponse(
+        outcome="answered",
+        answer="A summary.",
+        citations=[{"page_number": 2, "excerpt": "Supporting excerpt."}],
+    )
 
     assert request.question == "What is in this document?"
     assert response.model_dump() == {
+        "outcome": "answered",
         "answer": "A summary.",
-        "sources": ["doc-1"],
+        "citations": [{"page_number": 2, "excerpt": "Supporting excerpt."}],
     }
 
 
@@ -67,7 +72,11 @@ def test_validation_failure_uses_structured_error_response() -> None:
 
     @application.post("/test-question", response_model=QuestionResponse)
     def accept_question(request: QuestionRequest) -> QuestionResponse:
-        return QuestionResponse(answer=request.question)
+        return QuestionResponse(
+            outcome="answered",
+            answer=request.question,
+            citations=[{"page_number": 1, "excerpt": "Evidence"}],
+        )
 
     response = TestClient(application).post(
         "/test-question",

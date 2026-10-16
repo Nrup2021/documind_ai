@@ -21,9 +21,15 @@ class QuestionRequest(BaseModel):
         return question
 
 
+class AnswerCitation(BaseModel):
+    page_number: int = Field(gt=0)
+    excerpt: str = Field(min_length=1)
+
+
 class QuestionResponse(BaseModel):
+    outcome: Literal["answered", "insufficient_evidence"]
     answer: str
-    sources: List[str] = Field(default_factory=list)
+    citations: List[AnswerCitation] = Field(default_factory=list)
 
 
 class DocumentUploadResponse(BaseModel):

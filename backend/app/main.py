@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.answers import AnswerGenerationError, AnswerProvider, GeminiAnswerProvider
 from app.config import Settings, get_settings
 from app.documents import DocumentPipeline, PipelineError
 from app.mcp_research import (
@@ -19,10 +20,9 @@ from app.models import (
     ErrorResponse,
     HealthResponse,
     QuestionRequest,
+    QuestionResponse,
     ResearchSearchRequest,
     ResearchSearchResponse,
-    RetrievedPassage,
-    RetrievalResponse,
     ValidationIssue,
 )
 
@@ -33,6 +33,7 @@ def create_app(
     settings: Optional[Settings] = None,
     pipeline: Optional[DocumentPipeline] = None,
     research_provider: Optional[ResearchProvider] = None,
+    answer_provider: Optional[AnswerProvider] = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     application = FastAPI(
@@ -40,6 +41,11 @@ def create_app(
         debug=app_settings.debug,
     )
     application.state.document_pipeline = pipeline
+    application.state.answer_provider = (
+        answer_provider
+        if answer_provider is not None
+        else GeminiAnswerProvider(app_settings)
+    )
     application.state.research_provider = (
         research_provider
         if research_provider is not None
@@ -92,28 +98,16 @@ def create_app(
 
     @application.post(
         "/v1/documents/{document_id}/questions",
-        response_model=RetrievalResponse,
+        response_model=QuestionResponse,
         tags=["documents"],
     )
-    def retrieve_passages(
-        document_id: str, request: QuestionRequest
-    ) -> RetrievalResponse:
+    def answer_question(document_id: str, request: QuestionRequest) -> QuestionResponse:
         passages = get_pipeline().retrieve(
             document_id=document_id,
             question=request.question,
             limit=app_settings.retrieval_limit,
         )
-        return RetrievalResponse(
-            document_id=document_id,
-            passages=[
-                RetrievedPassage(
-                    text=passage.text,
-                    page_number=passage.page_number,
-                    distance=passage.distance,
-                )
-                for passage in passages
-            ],
-        )
+        return application.state.answer_provider.answer(request.question, passages)
 
     @application.post(
         "/v1/research/search",
@@ -142,6 +136,21 @@ def create_app(
     @application.exception_handler(MCPIntegrationError)
     async def mcp_error_handler(
         _request: Request, exc: MCPIntegrationError
+    ) -> JSONResponse:
+        response = ErrorResponse(
+            error={
+                "code": exc.code,
+                "message": str(exc),
+            }
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=response.model_dump(exclude_none=True),
+        )
+
+    @application.exception_handler(AnswerGenerationError)
+    async def answer_error_handler(
+        _request: Request, exc: AnswerGenerationError
     ) -> JSONResponse:
         response = ErrorResponse(
             error={

@@ -3,10 +3,11 @@
 ## Status boundary
 
 The Flutter foundation is in place with Riverpod, GoRouter, and
-document-library/chat presentation routes. The backend currently implements a
-synchronous PDF-to-Chroma pipeline and question-based passage retrieval.
-Authentication, ownership metadata, answer generation, and the remaining
-production lifecycle behavior below are still proposed.
+document-library/chat presentation routes. The backend implements a
+synchronous PDF-to-Chroma pipeline and a question route that retrieves
+page-aware passages before generating grounded answers with Gemini.
+Authentication, ownership metadata, and the remaining production lifecycle
+behavior below are still proposed.
 
 ## System shape
 
@@ -48,19 +49,18 @@ domain-facing repositories. Widgets do not call HTTP or model APIs directly.
    documents, chunks by page, embeds, and writes chunks with `document_id` and
    one-based `page_number` metadata. It returns a generated document ID after
    indexing completes; it does not persist document metadata or original PDFs.
-3. The current question endpoint embeds the question and retrieves ranked
-   passages from Chroma filtered by the supplied document ID. The ID filter
-   is not an authorization boundary because authentication and ownership checks
-   are not yet implemented.
-4. A future question endpoint should load the document from SQLite constrained
-   by the authenticated owner, apply a configurable relevance threshold, and
-   pass only bounded excerpts to an answer model.
-5. The model is instructed to answer only from supplied evidence and to abstain
-   when evidence is inadequate. The backend validates the structured model
-   response, intersects cited chunk IDs with the retrieved set, and constructs
-   citation page numbers/excerpts from stored chunks—not model-invented
-   metadata. If evidence or citations fail validation, return
-   `insufficient_evidence` or a provider error, never fabricated citations.
+3. The question endpoint embeds the question and retrieves ranked passages
+   from Chroma filtered by the supplied document ID. The ID filter is not an
+   authorization boundary because authentication and ownership checks are not
+   yet implemented.
+4. When passages exist, the backend passes bounded, page-preserving evidence
+   to Gemini. The model is instructed to answer only from that evidence and
+   abstain when it is inadequate. The backend validates its structured
+   response and each cited excerpt against the retrieved set, then constructs
+   citation page numbers from retrieved passage metadata—not model-invented
+   page numbers. No retrieved evidence returns an explicit abstention without
+   calling Gemini; invalid citations and provider failures return structured
+   errors, never fabricated citations.
 
 Chroma metadata is useful for filtering but is not an authorization boundary:
 ownership is enforced by the SQLite lookup and query construction before
@@ -112,13 +112,13 @@ implemented minimal routes currently have no authentication.
 | `GET /v1/documents` | List only the caller's documents; bounded pagination. | `200 {items, next_cursor}` |
 | `GET /v1/documents/{document_id}` | Read owned document metadata and processing status. | `200 {document}` |
 | `DELETE /v1/documents/{document_id}` | Delete owned document, source, and chunks. | `204`; return the same not-found behavior for missing and non-owned IDs. |
-| `POST /v1/documents/{document_id}/questions` | Retrieve page-aware passages for one document (implemented; unauthenticated). | `200 {document_id, passages}` |
+| `POST /v1/documents/{document_id}/questions` | Retrieve evidence and generate a grounded answer (implemented; unauthenticated). | `200 {outcome, answer, citations}` |
 | `GET /health/live` | Process liveness only; no secrets or dependency details. | `200 {status}` |
 | `GET /health/ready` | Readiness check for required local storage. | `200` or `503` |
 
 Implemented minimal routes are `POST /v1/documents` (synchronous extraction
 and indexing) and `POST /v1/documents/{document_id}/questions` (retrieve
-page-aware passages without generating an answer). They currently have no
+page-aware evidence and generate a grounded answer). They currently have no
 authentication, and do not yet implement the broader table's ownership,
 status, or lifecycle behavior.
 
@@ -134,10 +134,10 @@ fixed, reviewed operations.
   `page_count?`, `status: processing | ready | failed`, `failure_code?`,
   `created_at`, `updated_at`. Never serialize a storage path.
 - `QuestionRequest`: `question: non-empty bounded string`.
-- `Citation`: `page_number: positive integer`, `excerpt: bounded string`,
-  `chunk_id: opaque identifier`.
+- `Citation`: `page_number: positive integer`, `excerpt: supporting text from a
+  retrieved passage`.
 - `QuestionResponse`: `outcome: answered | insufficient_evidence`,
-  `answer: string` (empty only for explicit abstention), `citations: Citation[]`.
+  `answer: string`, `citations: Citation[]`.
 - `ErrorResponse`: `code`, safe `message`, `request_id`, and optional
   field-level `details`.
 

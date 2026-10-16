@@ -7,3 +7,5 @@ PyMuPDF==1.25.5
 python-multipart==0.0.20
 uvicorn==0.34.2
 mcp==2.3.0
+google-genai==1.11.0
+httpx==0.28.1

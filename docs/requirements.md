@@ -5,9 +5,9 @@
 This is a planning document, not a claim that all proposed features exist. The
 repository contains a Flutter foundation and a FastAPI backend with synchronous
 PDF extraction, page-aware chunking, OpenAI embeddings, persistent Chroma
-indexing, and document-scoped passage retrieval. Authentication, metadata and
-document lifecycle management, answer generation, MCP integration, Docker
-configuration, and CI workflow remain unimplemented.
+indexing, document-scoped retrieval, Gemini-backed grounded answer generation,
+and optional MCP web research. Authentication, metadata and document lifecycle
+management, Docker configuration, and CI workflow remain unimplemented.
 
 **Proposed MVP:** one Flutter Android client, one modular FastAPI service, and
 one local persistent data store. Users authenticate, upload PDFs, see ingestion
@@ -86,7 +86,7 @@ candidates, not dependencies installed in this repository:
 | PDF extraction | PyMuPDF (`PyMuPDF==1.25.5`) | Page-oriented extraction; page metadata remains one-based through chunking and retrieval. |
 | RAG store | Chroma (`chromadb==0.5.23`) | Persisted local vector collection; SQLite remains the planned source of truth for ownership and document metadata. |
 | Embeddings | OpenAI `text-embedding-3-small` (`openai==1.76.2`) | Supported embedding model called server-side; configured through `DOCUMIND_OPENAI_API_KEY`. |
-| Answer generation | Google's maintained `google-genai` Python SDK | Use the Gemini Developer API from the backend only. Model IDs, quotas, pricing, and regional/data handling must be verified at implementation time. |
+| Answer generation | `google-genai==1.11.0` | Use Gemini Developer API from the backend only; configure `DOCUMIND_GEMINI_API_KEY`. |
 | MCP client | Official MCP Python SDK (`mcp`) | Compatible MCP client; use a Python version supported by the selected SDK. |
 | Backend tests | pytest, HTTPX test client, and fakes for external/model boundaries | Deterministic tests without making paid Gemini requests. |
 
@@ -102,9 +102,11 @@ at $0.02 per million input tokens, based on [OpenAI's published standard API
 pricing](https://developers.openai.com/api/docs/pricing) checked 2026-10-16.
 Prices, discounts, taxes, quotas, and account eligibility may change; verify
 the live pricing and billing before use. The backend sends extracted PDF
-chunks and questions to OpenAI for embeddings. No answer-generation API is
-called by the current pipeline. Chroma is local, with no vector-service API
-charge; compute, storage, backups, and hosting still incur costs.
+chunks and questions to OpenAI for embeddings, and sends retrieved passages
+and questions to Gemini for answer generation. Both API credentials remain
+server-side and are not included in Flutter. Chroma is local, with no
+vector-service API charge; compute, storage, backups, and hosting still incur
+costs. Check Gemini pricing and data-handling terms before enabling live calls.
 
 ## Explicitly out of scope for the MVP
 

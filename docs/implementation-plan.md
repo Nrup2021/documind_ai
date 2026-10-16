@@ -4,9 +4,10 @@
 
 The Flutter app shell for milestone 1 is implemented. The backend foundation
 also includes synchronous PDF upload validation, PyMuPDF extraction,
-page-aware chunking, OpenAI embeddings, persistent Chroma indexing, and
-document-scoped passage retrieval. Authentication, document lifecycle and
-ownership, answer generation, and later milestones remain proposed.
+page-aware chunking, OpenAI embeddings, persistent Chroma indexing,
+document-scoped passage retrieval, and Gemini-backed grounded answers with
+validated citations and abstention. Authentication, document lifecycle and
+ownership, relevance thresholds, and later milestones remain proposed.
 
 ## Milestones
 
@@ -71,16 +72,22 @@ integration and the other listed cases remain to be added.
 
 ### 4. Grounded question answering
 
-- Add per-document retrieval, relevance threshold, bounded context, Gemini
-  adapter, structured output validation, abstention behavior, and citations
-  reconstructed from retrieved chunks.
+- [x] Retrieve page-aware passages per document and send bounded evidence
+  context to a backend-only Gemini adapter.
+- [x] Validate structured model output, require supporting excerpts from
+  retrieved passages, construct page citations from retrieval metadata, and
+  explicitly abstain when evidence is missing or insufficient.
+- [ ] Add a configurable relevance threshold for retrieved passages.
 - Use a deterministic fake model in tests; no real API key or paid request in
   normal CI.
 
-**Tests:** relevant evidence, no relevant evidence, malformed model output,
-invented citation IDs, Gemini timeout/rate limit, hostile instructions in PDF
-text, and cross-document/cross-user retrieval isolation. **Exit:** answers
-cite only retrieved page-aware excerpts or return an explicit abstention.
+**Tests:** relevant evidence and citation mapping, no retrieved evidence,
+model abstention, malformed model output, invented citations, provider errors,
+and Gemini timeout, using a mocked model client. Prompt-injection text is
+passed as quoted evidence, but dedicated adversarial prompt tests and
+cross-document/cross-user authorization tests remain to be added. **Exit:**
+answers cite only retrieved page-aware excerpts or return an explicit
+abstention.
 
 ### 5. Connect Flutter flows end to end
 

@@ -251,8 +251,12 @@ def test_search_endpoint_uses_mcp_and_keeps_rag_routes_independent() -> None:
     )
     assert rag_response.status_code == 200
     assert rag_response.json() == {
-        "document_id": "not-indexed",
-        "passages": [],
+        "outcome": "insufficient_evidence",
+        "answer": (
+            "The available document passages do not provide enough evidence to "
+            "answer this question."
+        ),
+        "citations": [],
     }
 
 

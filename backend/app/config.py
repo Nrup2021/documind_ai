@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     retrieval_limit: int = Field(default=5, gt=0)
     openai_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_timeout_seconds: float = Field(default=30, gt=0, le=120)
     chroma_persist_directory: str = "./data/chroma"
     chroma_collection_name: str = "document_chunks"
     tavily_api_key: str = ""
