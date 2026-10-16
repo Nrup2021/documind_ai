@@ -2,9 +2,10 @@
 
 ## Status
 
-This is a proposed milestone plan only. No product implementation, dependency
-installation, test run, container build, or deployment has been performed.
-Proceed after the architecture and open decisions are reviewed.
+The Flutter app shell for milestone 1 is implemented: Riverpod bootstrap,
+GoRouter navigation, and presentation-only document-library and chat screens.
+Backend, authentication, upload, and AI behavior have not been implemented.
+Later milestones remain proposed.
 
 ## Milestones
 

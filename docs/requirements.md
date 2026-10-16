@@ -2,10 +2,10 @@
 
 ## Status and scope
 
-This is a planning document, not a claim that these features exist. The current
-repository is a generated Flutter starter: it contains `lib/main.dart`, the
-starter counter widget test, and Flutter platform scaffolding. It has no
-backend, product UI, authentication, RAG pipeline, MCP integration, Docker
+This is a planning document, not a claim that all proposed features exist. The
+repository now contains a Flutter foundation with Riverpod, GoRouter, and
+presentation-only document-library and chat screens. It has no backend,
+authentication, document upload, RAG pipeline, MCP integration, Docker
 configuration, or CI workflow.
 
 **Proposed MVP:** one Flutter Android client, one modular FastAPI service, and

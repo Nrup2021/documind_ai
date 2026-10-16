@@ -1,30 +1,49 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:documind_ai/app/app.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:documind_ai/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  Future<void> pumpApp(WidgetTester tester) {
+    return tester.pumpWidget(const ProviderScope(child: DocuMindApp()));
+  }
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  testWidgets('opens the document library by default', (tester) async {
+    await pumpApp(tester);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(find.text('Documents'), findsOneWidget);
+    expect(find.text('Your library is ready'), findsOneWidget);
+    expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Chat'), findsOneWidget);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('navigates to chat and back to the library', (tester) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.text('Chat').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chat with your documents'), findsOneWidget);
+    expect(
+      find.text('Your document conversations will appear here.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Library').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your library is ready'), findsOneWidget);
+  });
+
+  testWidgets('shows a navigation rail on wide layouts', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpApp(tester);
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
   });
 }

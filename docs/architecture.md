@@ -2,9 +2,10 @@
 
 ## Status boundary
 
-Everything below is a proposed design. The inspected repository currently has
-only the Flutter starter screen and test; none of these components or API
-contracts have been implemented or verified.
+The architecture below remains the proposed design. The Flutter foundation is
+now in place with Riverpod, GoRouter, and document-library/chat presentation
+routes. Backend components, API contracts, and data/AI behavior remain
+unimplemented.
 
 ## System shape
 
