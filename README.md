@@ -7,8 +7,11 @@ and document-focused chat, with a separate Python backend foundation.
 
 - Riverpod app bootstrap and GoRouter navigation.
 - Responsive library and chat shell with presentation-only empty states.
-- FastAPI backend with a health endpoint and typed API contracts.
-- No document processing or AI functionality is implemented yet.
+- FastAPI backend with health and typed API contracts.
+- PDF extraction, page-aware chunking, OpenAI embeddings, persistent Chroma
+  indexing, and document-scoped passage retrieval.
+- Authentication, document lifecycle management, and answer generation are not
+  implemented yet.
 
 ## Development
 

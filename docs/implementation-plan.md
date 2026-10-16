@@ -2,10 +2,11 @@
 
 ## Status
 
-The Flutter app shell for milestone 1 is implemented: Riverpod bootstrap,
-GoRouter navigation, and presentation-only document-library and chat screens.
-Backend, authentication, upload, and AI behavior have not been implemented.
-Later milestones remain proposed.
+The Flutter app shell for milestone 1 is implemented. The backend foundation
+also includes synchronous PDF upload validation, PyMuPDF extraction,
+page-aware chunking, OpenAI embeddings, persistent Chroma indexing, and
+document-scoped passage retrieval. Authentication, document lifecycle and
+ownership, answer generation, and later milestones remain proposed.
 
 ## Milestones
 
@@ -50,19 +51,23 @@ prove a user's token cannot read or mutate another user's records.
 
 ### 3. Secure document upload and processing status
 
-- Add multipart upload validation, generated storage paths, configurable
-  limits, safe filenames, PyMuPDF extraction with page numbering, and document
-  status persistence.
-- Add page-aware chunking, local embedding adapter, and persistent Chroma
-  indexing. Add cleanup for partial failures and idempotent document deletion.
-- Use an in-process task only for the MVP; expose persisted processing state and
-  recover abandoned jobs on service restart.
+- [x] Add multipart upload validation, configurable byte/page limits, PyMuPDF
+  extraction with page numbering, and API-level processing.
+- [x] Add page-aware chunking, OpenAI embedding adapter, and persistent Chroma
+  indexing/retrieval.
+- [ ] Add generated storage paths, safe filename handling, and document status
+  persistence.
+- [ ] Add cleanup for partial failures and idempotent document deletion.
+- [ ] Expose persisted processing state and recover abandoned jobs on service
+  restart.
 
 **Tests:** valid, renamed-non-PDF, malformed, empty, encrypted, oversize,
 too-many-page, and cross-owner uploads; extraction/page metadata; status
 transitions; Chroma failure compensation; deletion. **Exit:** files, SQLite,
 and Chroma survive an application restart in local development, and a failed
-index never appears ready.
+index never appears ready. The current tests cover invalid PDF, empty text,
+size limit, page metadata, and retrieval with fakes; persistent-store
+integration and the other listed cases remain to be added.
 
 ### 4. Grounded question answering
 

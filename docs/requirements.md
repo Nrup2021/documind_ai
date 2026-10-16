@@ -3,10 +3,11 @@
 ## Status and scope
 
 This is a planning document, not a claim that all proposed features exist. The
-repository now contains a Flutter foundation with Riverpod, GoRouter, and
-presentation-only document-library and chat screens. It has no backend,
-authentication, document upload, RAG pipeline, MCP integration, Docker
-configuration, or CI workflow.
+repository contains a Flutter foundation and a FastAPI backend with synchronous
+PDF extraction, page-aware chunking, OpenAI embeddings, persistent Chroma
+indexing, and document-scoped passage retrieval. Authentication, metadata and
+document lifecycle management, answer generation, MCP integration, Docker
+configuration, and CI workflow remain unimplemented.
 
 **Proposed MVP:** one Flutter Android client, one modular FastAPI service, and
 one local persistent data store. Users authenticate, upload PDFs, see ingestion
@@ -82,25 +83,28 @@ candidates, not dependencies installed in this repository:
 | Flutter navigation | `go_router 18.1.0` | Requires Dart `^3.12.0` and Flutter `>=3.44.0`; the inspected toolchain is Flutter 3.47.7. |
 | Android PDF selection | `file_picker 13.1.0` | Requires Dart `>=3.10.0` and Flutter `>=3.38.0`; use native picker and filter for PDF, then validate on the server. |
 | Backend API/schema | FastAPI with Pydantic 2 | Typed request/response validation and OpenAPI; use a supported Python runtime. |
-| PDF extraction | PyMuPDF (`pymupdf`) | Page-oriented extraction suitable for preserving page citations. |
-| RAG store | Chroma (`chromadb`) | Persisted local vector collection; SQLite remains the source of truth for ownership and document metadata. |
-| Local embeddings | Sentence Transformers with `sentence-transformers/all-MiniLM-L6-v2` | Avoids a separate paid embedding API; model download, license, quality, and deployment size must be checked before adoption. |
+| PDF extraction | PyMuPDF (`PyMuPDF==1.25.5`) | Page-oriented extraction; page metadata remains one-based through chunking and retrieval. |
+| RAG store | Chroma (`chromadb==0.5.23`) | Persisted local vector collection; SQLite remains the planned source of truth for ownership and document metadata. |
+| Embeddings | OpenAI `text-embedding-3-small` (`openai==1.76.2`) | Supported embedding model called server-side; configured through `DOCUMIND_OPENAI_API_KEY`. |
 | Answer generation | Google's maintained `google-genai` Python SDK | Use the Gemini Developer API from the backend only. Model IDs, quotas, pricing, and regional/data handling must be verified at implementation time. |
 | MCP client | Official MCP Python SDK (`mcp`) | Compatible MCP client; use a Python version supported by the selected SDK. |
 | Backend tests | pytest, HTTPX test client, and fakes for external/model boundaries | Deterministic tests without making paid Gemini requests. |
 
-Before implementation, resolve and lock mutually compatible Python package
-versions in the project's lockfile; do not use unbounded production
-dependencies. The machine currently reports Python 3.9.6, which is too old for
-the proposed MCP Python SDK baseline and is not a suitable new backend target.
-Use Python 3.12 for local/CI/container backend work, subject to confirming
-package support and wheels. Flutter candidates above meet the inspected local
-SDK constraints, but still need resolution through `flutter pub get`.
+Backend dependencies are pinned in `backend/requirements.txt`; Python 3.9.6 is
+the current local backend interpreter. The backend dependencies are selected
+for that runtime. The proposed MCP Python SDK may require a newer Python and
+will need a separate compatibility check when that milestone is implemented.
+Flutter candidates above meet the inspected local SDK constraints, but still
+need resolution through `flutter pub get`.
 
-Gemini use can incur charges and sends the question plus selected document
-excerpts to Google's API. Confirm account billing, model availability, data
-handling, and a per-request budget before enabling live calls. No paid hosting,
-managed database, or paid vector service is proposed.
+The current embedding API pricing assumption is OpenAI `text-embedding-3-small`
+at $0.02 per million input tokens, based on [OpenAI's published standard API
+pricing](https://developers.openai.com/api/docs/pricing) checked 2026-10-16.
+Prices, discounts, taxes, quotas, and account eligibility may change; verify
+the live pricing and billing before use. The backend sends extracted PDF
+chunks and questions to OpenAI for embeddings. No answer-generation API is
+called by the current pipeline. Chroma is local, with no vector-service API
+charge; compute, storage, backups, and hosting still incur costs.
 
 ## Explicitly out of scope for the MVP
 

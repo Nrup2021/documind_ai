@@ -1,27 +1,44 @@
 import logging
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, get_settings
+from app.documents import DocumentPipeline, PipelineError
 from app.models import (
+    DocumentUploadResponse,
     ErrorResponse,
     HealthResponse,
+    QuestionRequest,
+    RetrievedPassage,
+    RetrievalResponse,
     ValidationIssue,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Optional[Settings] = None) -> FastAPI:
+def create_app(
+    settings: Optional[Settings] = None,
+    pipeline: Optional[DocumentPipeline] = None,
+) -> FastAPI:
     app_settings = settings or get_settings()
     application = FastAPI(
         title=app_settings.app_name,
         debug=app_settings.debug,
     )
+    application.state.document_pipeline = pipeline
+
+    def get_pipeline() -> DocumentPipeline:
+        if application.state.document_pipeline is None:
+            application.state.document_pipeline = DocumentPipeline.from_settings(
+                app_settings
+            )
+        return application.state.document_pipeline
 
     @application.get("/health", response_model=HealthResponse, tags=["health"])
     def health_check() -> HealthResponse:
@@ -29,6 +46,75 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             status="ok",
             service=app_settings.app_name,
             environment=app_settings.environment,
+        )
+
+    @application.post(
+        "/v1/documents",
+        response_model=DocumentUploadResponse,
+        status_code=201,
+        tags=["documents"],
+    )
+    async def upload_document(file: UploadFile = File(...)) -> DocumentUploadResponse:
+        payload = await file.read(app_settings.max_upload_bytes + 1)
+        if len(payload) > app_settings.max_upload_bytes:
+            raise PipelineError(
+                "upload_too_large",
+                "The uploaded file exceeds the maximum size.",
+                413,
+            )
+        if not payload:
+            raise PipelineError("empty_upload", "The uploaded file is empty.", 400)
+
+        document_id = str(uuid4())
+        page_count, chunk_count = get_pipeline().ingest(
+            document_id=document_id,
+            payload=payload,
+            max_pages=app_settings.max_pdf_pages,
+        )
+        return DocumentUploadResponse(
+            document_id=document_id,
+            page_count=page_count,
+            chunk_count=chunk_count,
+        )
+
+    @application.post(
+        "/v1/documents/{document_id}/questions",
+        response_model=RetrievalResponse,
+        tags=["documents"],
+    )
+    def retrieve_passages(
+        document_id: str, request: QuestionRequest
+    ) -> RetrievalResponse:
+        passages = get_pipeline().retrieve(
+            document_id=document_id,
+            question=request.question,
+            limit=app_settings.retrieval_limit,
+        )
+        return RetrievalResponse(
+            document_id=document_id,
+            passages=[
+                RetrievedPassage(
+                    text=passage.text,
+                    page_number=passage.page_number,
+                    distance=passage.distance,
+                )
+                for passage in passages
+            ],
+        )
+
+    @application.exception_handler(PipelineError)
+    async def pipeline_error_handler(
+        _request: Request, exc: PipelineError
+    ) -> JSONResponse:
+        response = ErrorResponse(
+            error={
+                "code": exc.code,
+                "message": str(exc),
+            }
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=response.model_dump(exclude_none=True),
         )
 
     @application.exception_handler(RequestValidationError)

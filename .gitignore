@@ -38,6 +38,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+backend/data/
 
 # Symbolication related
 app.*.symbols

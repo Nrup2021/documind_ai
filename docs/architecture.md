@@ -2,10 +2,11 @@
 
 ## Status boundary
 
-The architecture below remains the proposed design. The Flutter foundation is
-now in place with Riverpod, GoRouter, and document-library/chat presentation
-routes. Backend components, API contracts, and data/AI behavior remain
-unimplemented.
+The Flutter foundation is in place with Riverpod, GoRouter, and
+document-library/chat presentation routes. The backend currently implements a
+synchronous PDF-to-Chroma pipeline and question-based passage retrieval.
+Authentication, ownership metadata, answer generation, and the remaining
+production lifecycle behavior below are still proposed.
 
 ## System shape
 
@@ -43,17 +44,17 @@ domain-facing repositories. Widgets do not call HTTP or model APIs directly.
 
 1. The app sends a PDF with a bearer token. The API validates the token and
    writes to a generated private temporary path with size limits.
-2. The API persists document metadata with `processing` state and returns
-   `202 Accepted`. A small in-process FastAPI background task extracts page
-   text, rejects unusable documents, chunks by page, embeds, and writes chunks
-   with `owner_id`, `document_id`, and one-based `page_number` metadata.
-3. The API marks the record `ready`, or records a safe failure code/message.
-   A startup recovery check marks abandoned `processing` records as failed;
-   in-process background work is intentionally not a durable queue.
-4. The question endpoint first loads the document from SQLite constrained by
-   the authenticated owner. It queries Chroma only for that authorized
-   document's chunk IDs, applies a configurable relevance threshold, and
-   passes only bounded excerpts to Gemini.
+2. The current API synchronously extracts page text, rejects unusable
+   documents, chunks by page, embeds, and writes chunks with `document_id` and
+   one-based `page_number` metadata. It returns a generated document ID after
+   indexing completes; it does not persist document metadata or original PDFs.
+3. The current question endpoint embeds the question and retrieves ranked
+   passages from Chroma filtered by the supplied document ID. The ID filter
+   is not an authorization boundary because authentication and ownership checks
+   are not yet implemented.
+4. A future question endpoint should load the document from SQLite constrained
+   by the authenticated owner, apply a configurable relevance threshold, and
+   pass only bounded excerpts to an answer model.
 5. The model is instructed to answer only from supplied evidence and to abstain
    when evidence is inadequate. The backend validates the structured model
    response, intersects cited chunk IDs with the retrieved set, and constructs
@@ -69,10 +70,13 @@ injection cases.
 
 ### Processing reliability boundary
 
-FastAPI `BackgroundTasks` is acceptable only for a single-process MVP. It can
-lose work on process exit and does not provide durable retries. Persist status
-before scheduling, expose status polling, report failures, and recover stale
-records on startup. Replace it with a durable queue only if reliability or
+The current processing path runs inline with the upload request. It is suitable
+only as a minimal development pipeline; there is no persisted status record or
+durable job queue.
+
+For a future asynchronous implementation, persist status before scheduling,
+expose status polling, report failures, and recover stale records on startup.
+Replace in-process background work with a durable queue only if reliability or
 throughput requirements justify the added service and operational cost.
 
 File, SQLite, and Chroma writes are not one atomic transaction. Use a
@@ -97,19 +101,26 @@ Prefix: `/v1`. JSON errors use a stable shape:
 ```
 
 Do not return internal stack traces, filesystem locations, prompts, or secrets.
-All document endpoints require a bearer access token.
+Future protected document endpoints require a bearer access token; the two
+implemented minimal routes currently have no authentication.
 
 | Method and path | Purpose | Proposed result |
 |---|---|---|
 | `POST /v1/auth/register` | Create a local MVP account; hash passwords using a maintained password-hashing library. | `201 {user_id, access_token, token_type, expires_in}` |
 | `POST /v1/auth/token` | Authenticate and issue a short-lived signed token. | `200 {user_id, access_token, token_type, expires_in}` |
-| `POST /v1/documents` | Multipart PDF upload; validates limits and schedules ingestion. | `202 {document}` |
+| `POST /v1/documents` | Multipart PDF upload; validates limits and synchronously indexes content. | `201 {document_id, page_count, chunk_count}` |
 | `GET /v1/documents` | List only the caller's documents; bounded pagination. | `200 {items, next_cursor}` |
 | `GET /v1/documents/{document_id}` | Read owned document metadata and processing status. | `200 {document}` |
 | `DELETE /v1/documents/{document_id}` | Delete owned document, source, and chunks. | `204`; return the same not-found behavior for missing and non-owned IDs. |
-| `POST /v1/documents/{document_id}/questions` | Ask about one owned, ready document. | `200 {answer, citations, outcome}` |
+| `POST /v1/documents/{document_id}/questions` | Retrieve page-aware passages for one document (implemented; unauthenticated). | `200 {document_id, passages}` |
 | `GET /health/live` | Process liveness only; no secrets or dependency details. | `200 {status}` |
 | `GET /health/ready` | Readiness check for required local storage. | `200` or `503` |
+
+Implemented minimal routes are `POST /v1/documents` (synchronous extraction
+and indexing) and `POST /v1/documents/{document_id}/questions` (retrieve
+page-aware passages without generating an answer). They currently have no
+authentication, and do not yet implement the broader table's ownership,
+status, or lifecycle behavior.
 
 Do not add a public MCP tool-execution endpoint. If an MCP demonstration is
 included, keep it behind an explicit development/admin boundary and expose only

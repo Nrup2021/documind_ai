@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -10,12 +10,37 @@ class HealthResponse(BaseModel):
 
 
 class QuestionRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=10_000)
+    question: str = Field(min_length=1, max_length=2_000)
+
+    @field_validator("question")
+    @classmethod
+    def reject_blank_question(cls, question: str) -> str:
+        question = question.strip()
+        if not question:
+            raise ValueError("Question must not be blank")
+        return question
 
 
 class QuestionResponse(BaseModel):
     answer: str
     sources: List[str] = Field(default_factory=list)
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    page_count: int
+    chunk_count: int
+
+
+class RetrievedPassage(BaseModel):
+    text: str
+    page_number: int
+    distance: Optional[float] = None
+
+
+class RetrievalResponse(BaseModel):
+    document_id: str
+    passages: List[RetrievedPassage] = Field(default_factory=list)
 
 
 class ValidationIssue(BaseModel):
