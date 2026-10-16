@@ -48,15 +48,17 @@ listed with `DOCUMIND_CORS_ALLOWED_ORIGINS`. Android's debug manifest permits
 cleartext HTTP for local development; release builds should use an HTTPS URL.
 No credentials or model keys are embedded in the app.
 
-Only implemented backend routes are called: `POST /v1/documents` with the
-multipart field `file`, and `POST /v1/documents/{document_id}/questions` with
-`{"question": "..."}`. Upload returns `document_id`, `page_count`, and
-`chunk_count`; questions return `outcome`, `answer`, and `citations` containing
-`page_number` and `excerpt`. Upload progress is client-side transfer progress;
-the backend processes the upload synchronously and returns only after indexing.
-There is no server-side document list, status polling, or delete route yet, so
-completed document metadata is persisted locally and the app does not claim
-server synchronization or deletion.
+Implemented backend routes include `POST /v1/documents` with the multipart
+field `file`, `DELETE /v1/documents/{document_id}`, and
+`POST /v1/documents/{document_id}/questions` with `{"question": "..."}`.
+Upload returns `document_id`, `page_count`, and `chunk_count`; questions return
+`outcome`, `answer`, and `citations` containing `page_number` and `excerpt`.
+Upload progress is client-side transfer progress; the backend processes the
+upload synchronously and returns only after indexing.
+There is no server-side document list or status polling, so completed document
+metadata is persisted locally and the app does not claim server-side library
+synchronization. A delete route removes indexed Chroma chunks by document ID;
+the app removes local library metadata after that request succeeds.
 
 ## Proposed ingestion and question flows
 

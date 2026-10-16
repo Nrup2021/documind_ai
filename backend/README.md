@@ -61,9 +61,25 @@ In development, the API allows local browser origins such as Flutter's
 `DOCUMIND_CORS_ALLOWED_ORIGINS` to a comma-separated list of exact origins
 (for example, `https://app.example.com`).
 An Android emulator reaches the computer hosting FastAPI at `10.0.2.2`.
-For a real phone on the same Wi-Fi, run FastAPI on a LAN-reachable interface
-and launch Flutter with
-`--dart-define=DOCUMIND_API_BASE_URL=http://<computer-LAN-IP>:8000`.
+For a real phone on the same Wi-Fi, stop the default backend process and
+restart it listening on the computer's network interfaces:
+
+```sh
+uvicorn app.main:app --reload --host 0.0.0.0
+```
+
+Then launch Flutter with the computer's current LAN IP:
+
+```sh
+flutter run -d <phone-device-id> \
+  --dart-define=DOCUMIND_API_BASE_URL=http://192.168.1.10:8000
+```
+
+Replace `192.168.1.10` with the computer's LAN IP and use the device ID from
+`flutter devices`. The phone and computer must be on the same Wi-Fi, and the
+computer's firewall must permit incoming connections to port 8000. Binding to
+`0.0.0.0` exposes the development API to the local network; use only on a
+trusted network and stop this server when finished.
 A phone using cellular data cannot reach a private LAN address; it needs a
 reachable VPN or a secured, deployed API endpoint. Do not expose this
 unauthenticated development API directly to the public internet.
@@ -109,6 +125,17 @@ server/model errors without exposing provider details.
 Chroma is filtered by the requested document ID, but the API has no
 authentication or document ownership checks yet. Do not expose it to untrusted
 clients.
+
+Remove an indexed document and its Chroma chunks with:
+
+```sh
+curl -X DELETE http://127.0.0.1:8000/v1/documents/DOCUMENT_ID
+```
+
+A successful deletion returns `204 No Content`. The current service does not
+store original PDFs on the backend; the app removes its local library record
+after the backend confirms deletion. This route does not provide
+authentication or document ownership checks.
 
 ## Configuration
 

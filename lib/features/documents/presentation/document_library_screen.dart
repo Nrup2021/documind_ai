@@ -15,6 +15,7 @@ class DocumentLibraryScreen extends ConsumerStatefulWidget {
 
 class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
   bool _openingPicker = false;
+  final Set<String> _removingDocumentIds = {};
 
   Future<void> _pickAndUpload() async {
     setState(() => _openingPicker = true);
@@ -74,6 +75,53 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
     }
   }
 
+  Future<void> _remove(DocumentRecord document) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove PDF?'),
+        content: Text(
+          document.status == DocumentStatus.ready
+              ? '“${document.name}” will be removed from this library and its '
+                    'indexed content will be deleted.'
+              : '“${document.name}” will be removed from this device library.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _removingDocumentIds.add(document.id));
+    try {
+      await ref
+          .read(documentsControllerProvider.notifier)
+          .removeDocument(document);
+      if (mounted) _showMessage('Removed ${document.name}.');
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'document removal',
+        ),
+      );
+      if (mounted) {
+        _showMessage('Could not remove ${document.name}. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _removingDocumentIds.remove(document.id));
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -129,7 +177,7 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                     Expanded(
                       child: Text(
                         'Your library is saved on this device. The current API '
-                        'does not yet provide server-side library sync or deletion.',
+                        'does not yet provide server-side library sync.',
                         style: textTheme.bodySmall,
                       ),
                     ),
@@ -178,6 +226,8 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
                       _DocumentCard(
                         document: document,
                         onRetry: () => _retry(document),
+                        onRemove: () => _remove(document),
+                        isRemoving: _removingDocumentIds.contains(document.id),
                       ),
                   ],
                 );
@@ -254,10 +304,17 @@ class _DocumentLibraryScreenState extends ConsumerState<DocumentLibraryScreen> {
 }
 
 class _DocumentCard extends StatelessWidget {
-  const _DocumentCard({required this.document, required this.onRetry});
+  const _DocumentCard({
+    required this.document,
+    required this.onRetry,
+    required this.onRemove,
+    required this.isRemoving,
+  });
 
   final DocumentRecord document;
   final VoidCallback onRetry;
+  final VoidCallback onRemove;
+  final bool isRemoving;
 
   @override
   Widget build(BuildContext context) {
@@ -326,6 +383,21 @@ class _DocumentCard extends StatelessWidget {
                   },
                   color: statusColor,
                   isLoading: document.status == DocumentStatus.uploading,
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'Remove ${document.name} from library',
+                  onPressed:
+                      isRemoving || document.status == DocumentStatus.uploading
+                      ? null
+                      : onRemove,
+                  icon: isRemoving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline),
                 ),
               ],
             ),

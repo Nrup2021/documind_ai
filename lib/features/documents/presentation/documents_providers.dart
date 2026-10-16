@@ -66,18 +66,34 @@ class DocumentsController extends AsyncNotifier<List<DocumentRecord>> {
     await _upload(pending);
   }
 
+  Future<void> removeDocument(DocumentRecord document) async {
+    if (document.status == DocumentStatus.uploading) {
+      throw const ApiFailure(
+        code: 'upload_in_progress',
+        message: 'Wait for the upload to finish before removing this PDF.',
+      );
+    }
+    await ref.read(documentsRepositoryProvider).remove(document);
+    state = AsyncData([
+      for (final item in state.value ?? const <DocumentRecord>[])
+        if (item.id != document.id) item,
+    ]);
+  }
+
   Future<void> _upload(DocumentRecord pending) async {
     try {
-      final uploaded = await ref.read(documentsRepositoryProvider).uploadPdf(
-        filename: pending.name,
-        bytes: pending.retryBytes!,
-        onProgress: (progress) {
-          final current = _find(pending.id);
-          if (current != null) {
-            _replace(pending.id, current.copyWith(progress: progress));
-          }
-        },
-      );
+      final uploaded = await ref
+          .read(documentsRepositoryProvider)
+          .uploadPdf(
+            filename: pending.name,
+            bytes: pending.retryBytes!,
+            onProgress: (progress) {
+              final current = _find(pending.id);
+              if (current != null) {
+                _replace(pending.id, current.copyWith(progress: progress));
+              }
+            },
+          );
       _replace(pending.id, uploaded);
     } on ApiFailure catch (failure) {
       _replace(
@@ -102,9 +118,7 @@ class DocumentsController extends AsyncNotifier<List<DocumentRecord>> {
   }
 
   DocumentRecord? _find(String id) {
-    return state.value
-        ?.where((document) => document.id == id)
-        .firstOrNull;
+    return state.value?.where((document) => document.id == id).firstOrNull;
   }
 
   void _replace(String id, DocumentRecord replacement) {
@@ -119,10 +133,7 @@ class DocumentsController extends AsyncNotifier<List<DocumentRecord>> {
 final pdfPickerProvider = Provider<PdfPicker>((ref) => const PdfPicker());
 
 class SelectedPdf {
-  const SelectedPdf({
-    required this.filename,
-    required this.bytes,
-  });
+  const SelectedPdf({required this.filename, required this.bytes});
 
   final String filename;
   final Uint8List bytes;
@@ -149,7 +160,8 @@ class PdfPicker {
     if (fileSize == null) {
       throw const ApiFailure(
         code: 'file_read_error',
-        message: 'The selected PDF size could not be read. Please choose it again.',
+        message:
+            'The selected PDF size could not be read. Please choose it again.',
       );
     }
     if (fileSize > maxUploadBytes) {

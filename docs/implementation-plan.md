@@ -94,9 +94,9 @@ abstention.
   backend error display.
 - [x] Add a device-local library for successful uploads, client-observed
   processing/error states, retry, and document-scoped questions with citations.
-- [ ] Add login/register and server-backed document list/status/delete after
-  those routes exist in FastAPI. The current API supports neither server-side
-  library synchronization nor deletion.
+- [ ] Add login/register and server-backed document list/status after those
+  routes exist in FastAPI. The API now supports deleting indexed chunks but
+  does not synchronize the server-side library.
 - [x] Add empty/loading/error states and fake-repository widget and API
   contract tests.
 - [ ] Validate keyboard, scrolling, and narrow Android layouts on a device.

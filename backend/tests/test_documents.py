@@ -98,6 +98,9 @@ class FakeVectorStore:
             for chunk in self.documents.get(document_id, [])[:limit]
         ]
 
+    def delete(self, document_id: str) -> None:
+        self.documents.pop(document_id, None)
+
 
 class FakeAnswerProvider:
     def answer(self, question, passages):
@@ -231,6 +234,31 @@ def test_retrieval_does_not_return_another_documents_chunks() -> None:
     }
 
 
+def test_delete_document_removes_its_indexed_chunks() -> None:
+    client, vector_store = make_test_client()
+    upload = client.post(
+        "/v1/documents",
+        files={
+            "file": (
+                "notes.pdf",
+                make_pdf("The document contains searchable content."),
+                "application/pdf",
+            )
+        },
+    )
+    document_id = upload.json()["document_id"]
+
+    response = client.delete(f"/v1/documents/{document_id}")
+    question = client.post(
+        f"/v1/documents/{document_id}/questions",
+        json={"question": "What does it say?"},
+    )
+
+    assert response.status_code == 204
+    assert document_id not in vector_store.documents
+    assert question.json()["outcome"] == "insufficient_evidence"
+
+
 def test_chroma_returns_nearest_matching_document_chunk(tmp_path) -> None:
     store = ChromaVectorStore(str(tmp_path), "retrieval_test")
     store.add(
@@ -247,6 +275,10 @@ def test_chroma_returns_nearest_matching_document_chunk(tmp_path) -> None:
 
     assert passages == [RetrievedChunk(2, "relevant passage", 0.0)]
     assert other_document == []
+
+    store.delete("document-a")
+
+    assert store.query("document-a", [1.0, 0.0], limit=1) == []
 
 
 def test_chunk_pages_rejects_invalid_overlap() -> None:

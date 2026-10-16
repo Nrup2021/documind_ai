@@ -17,6 +17,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _questionController = TextEditingController();
   String? _selectedDocumentId;
+  bool _removingDocument = false;
 
   @override
   void dispose() {
@@ -33,8 +34,76 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _questionController.clear();
   }
 
+  Future<void> _removeDocument(DocumentRecord document) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove PDF?'),
+        content: Text(
+          '“${document.name}” will be removed from your library and its '
+          'indexed content will be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _removingDocument = true);
+    try {
+      await ref
+          .read(documentsControllerProvider.notifier)
+          .removeDocument(document);
+      ref.read(questionControllerProvider.notifier).selectDocument(null);
+      if (mounted) {
+        setState(() => _selectedDocumentId = null);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('Removed ${document.name}.')));
+      }
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'chat document removal',
+        ),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('Could not remove ${document.name}. Please retry.'),
+            ),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _removingDocument = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(documentsControllerProvider, (previous, next) {
+      final activeId = ref.read(questionControllerProvider).documentId;
+      final documentIds = next.value?.map((document) => document.id).toSet();
+      if (activeId != null &&
+          documentIds != null &&
+          !documentIds.contains(activeId)) {
+        ref.read(questionControllerProvider.notifier).selectDocument(null);
+        if (mounted) setState(() => _selectedDocumentId = null);
+      }
+    });
+
     final textTheme = Theme.of(context).textTheme;
     final documentsState = ref.watch(documentsControllerProvider);
     final chat = ref.watch(questionControllerProvider);
@@ -52,6 +121,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             .where((document) => document.id == chat.documentId)
             .firstOrNull ??
         (readyDocuments.isEmpty ? null : readyDocuments.first);
+    final activeTurns = chat.documentId == activeDocument?.id
+        ? chat.turns
+        : const <ChatTurn>[];
 
     return Center(
       child: ConstrainedBox(
@@ -110,20 +182,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 )
               else ...[
-                _DocumentSelector(
-                  documents: readyDocuments,
-                  selected: activeDocument,
-                  onChanged: (document) {
-                    if (document == null) return;
-                    setState(() => _selectedDocumentId = document.id);
-                    ref
-                        .read(questionControllerProvider.notifier)
-                        .selectDocument(document.id);
-                  },
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DocumentSelector(
+                        documents: readyDocuments,
+                        selected: activeDocument,
+                        onChanged: (document) {
+                          if (document == null) return;
+                          setState(() => _selectedDocumentId = document.id);
+                          ref
+                              .read(questionControllerProvider.notifier)
+                              .selectDocument(document.id);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Remove ${activeDocument.name} from library',
+                      onPressed: _removingDocument || chat.isSending
+                          ? null
+                          : () => _removeDocument(activeDocument),
+                      icon: _removingDocument
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.delete_outline),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: chat.turns.isEmpty
+                  child: activeTurns.isEmpty
                       ? _MessagePanel(
                           icon: Icons.forum_outlined,
                           title: 'Ask about ${activeDocument.name}',
@@ -132,9 +224,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               'evidence from a specific page.',
                         )
                       : ListView.builder(
-                          itemCount: chat.turns.length,
+                          itemCount: activeTurns.length,
                           itemBuilder: (context, index) => _TurnView(
-                            turn: chat.turns[index],
+                            turn: activeTurns[index],
                             onRetry: chat.isSending
                                 ? null
                                 : () => ref

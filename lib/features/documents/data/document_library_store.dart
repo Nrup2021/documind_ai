@@ -8,6 +8,8 @@ abstract interface class DocumentLibraryStore {
   Future<List<DocumentRecord>> load();
 
   Future<void> save(DocumentRecord document);
+
+  Future<void> remove(String documentId);
 }
 
 class SharedPreferencesDocumentLibraryStore implements DocumentLibraryStore {
@@ -44,7 +46,27 @@ class SharedPreferencesDocumentLibraryStore implements DocumentLibraryStore {
       jsonEncode(updated.map((item) => item.toJson()).toList()),
     );
     if (!saved) {
-      throw StateError('The document library could not be saved on this device.');
+      throw StateError(
+        'The document library could not be saved on this device.',
+      );
+    }
+  }
+
+  @override
+  Future<void> remove(String documentId) async {
+    final preferences = await SharedPreferences.getInstance();
+    final documents = await load();
+    final saved = await preferences.setString(
+      _key,
+      jsonEncode(
+        documents
+            .where((document) => document.id != documentId)
+            .map((document) => document.toJson())
+            .toList(),
+      ),
+    );
+    if (!saved) {
+      throw StateError('The document could not be removed from this device.');
     }
   }
 }

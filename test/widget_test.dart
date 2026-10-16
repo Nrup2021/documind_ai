@@ -20,6 +20,11 @@ class FakeDocumentsRepository implements DocumentsRepository {
   Future<List<DocumentRecord>> loadLibrary() async => List.of(documents);
 
   @override
+  Future<void> remove(DocumentRecord document) async {
+    documents.removeWhere((item) => item.id == document.id);
+  }
+
+  @override
   Future<DocumentRecord> uploadPdf({
     required String filename,
     required Uint8List bytes,
@@ -155,5 +160,40 @@ void main() {
 
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets('removes a PDF from the library', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Add PDF'));
+    await tester.pumpAndSettle();
+    expect(find.text('research.pdf'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove research.pdf from library'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove PDF?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your library is ready'), findsOneWidget);
+    expect(documentsRepository.documents, isEmpty);
+  });
+
+  testWidgets('removes the selected PDF from chat and clears that chat', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Add PDF'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chat').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Ask about research.pdf'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove research.pdf from library'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add a PDF to start chatting'), findsOneWidget);
+    expect(documentsRepository.documents, isEmpty);
   });
 }

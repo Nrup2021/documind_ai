@@ -57,6 +57,9 @@ class VectorStore(Protocol):
     ) -> List[RetrievedChunk]:
         ...
 
+    def delete(self, document_id: str) -> None:
+        ...
+
 
 def extract_pdf_pages(payload: bytes, max_pages: int) -> List[PageText]:
     try:
@@ -210,6 +213,14 @@ class ChromaVectorStore:
             for text, metadata, distance in zip(documents, metadatas, distances)
         ]
 
+    def delete(self, document_id: str) -> None:
+        try:
+            self._collection.delete(where={"document_id": document_id})
+        except self._chromadb.errors.ChromaError as exc:
+            raise PipelineError(
+                "vector_store_error", "The document could not be removed.", 502
+            ) from exc
+
 
 class DocumentPipeline:
     def __init__(
@@ -271,3 +282,6 @@ class DocumentPipeline:
                 502,
             )
         return self._vector_store.query(document_id, embeddings[0], limit)
+
+    def delete_document(self, document_id: str) -> None:
+        self._vector_store.delete(document_id)

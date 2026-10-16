@@ -31,4 +31,21 @@ void main() {
     expect(restored.single.pageCount, 5);
     expect(restored.single.chunkCount, 8);
   });
+
+  test('removes a document from the persisted local library', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SharedPreferencesDocumentLibraryStore();
+    final document = DocumentRecord(
+      id: 'doc-123',
+      name: 'research.pdf',
+      sizeBytes: 4096,
+      uploadedAt: DateTime.utc(2026, 10, 16),
+      status: DocumentStatus.ready,
+    );
+    await store.save(document);
+
+    await store.remove(document.id);
+
+    expect(await store.load(), isEmpty);
+  });
 }

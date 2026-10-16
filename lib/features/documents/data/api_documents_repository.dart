@@ -17,6 +17,18 @@ class ApiDocumentsRepository implements DocumentsRepository {
   Future<List<DocumentRecord>> loadLibrary() => _libraryStore.load();
 
   @override
+  Future<void> remove(DocumentRecord document) async {
+    if (document.status == DocumentStatus.ready) {
+      try {
+        await _client.delete<void>('/v1/documents/${document.id}');
+      } on DioException catch (error) {
+        throw ApiFailure.fromDio(error);
+      }
+    }
+    await _libraryStore.remove(document.id);
+  }
+
+  @override
   Future<DocumentRecord> uploadPdf({
     required String filename,
     required Uint8List bytes,

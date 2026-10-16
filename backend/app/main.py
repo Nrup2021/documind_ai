@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -98,6 +98,15 @@ def create_app(
             page_count=page_count,
             chunk_count=chunk_count,
         )
+
+    @application.delete(
+        "/v1/documents/{document_id}",
+        status_code=204,
+        tags=["documents"],
+    )
+    def delete_document(document_id: str) -> Response:
+        get_pipeline().delete_document(document_id)
+        return Response(status_code=204)
 
     @application.post(
         "/v1/documents/{document_id}/questions",

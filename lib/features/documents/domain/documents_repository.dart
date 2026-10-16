@@ -5,6 +5,8 @@ import 'document_record.dart';
 abstract interface class DocumentsRepository {
   Future<List<DocumentRecord>> loadLibrary();
 
+  Future<void> remove(DocumentRecord document);
+
   Future<DocumentRecord> uploadPdf({
     required String filename,
     required Uint8List bytes,
